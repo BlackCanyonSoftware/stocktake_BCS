@@ -5,6 +5,8 @@ never registered, a manifest kind nobody taught it to read, a dependency of its 
 somebody adds something, which is the point.
 """
 
+import ast
+import sys
 import tomllib
 from pathlib import Path
 
@@ -49,19 +51,26 @@ def test_the_core_imports_nothing_outside_the_standard_library():
     Two exceptions, both deliberate: `packaging`, which is only ever imported inside a try/except as an optional nicety, and `pytest` in the
     pytest plugin, which is only ever imported under pytest. Anywhere else, an import of either is a bug.
     """
-    allowed = {"stocktake", "packaging"}
+    allowed = {"stocktake", "packaging", "__future__"}
     only_in = {"pytest_plugin.py": {"pytest"}, "dependency_test_template.py": {"pytest"}}
-    stdlib = set(__import__("sys").stdlib_module_names)
-    offenders = {}
+    stdlib = set(sys.stdlib_module_names)
+
+    offenders: dict[str, set[str]] = {}
     for path in (ROOT / "src" / "stocktake").rglob("*.py"):
         permitted = stdlib | allowed | only_in.get(path.name, set())
-        for line in path.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if not stripped.startswith(("import ", "from ")):
+        # Read with the parser rather than by matching lines: `vendor.py`'s docstring shows an example `import stocktake_vendored`, which a
+        # line scan counts as an import. It also means an import inside a function is seen, which is where the optional ones live.
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                roots = [alias.name.split(".")[0] for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                roots = [(node.module or "").split(".")[0]] if node.level == 0 else []
+            else:
                 continue
-            root_module = stripped.split()[1].split(".")[0]
-            if root_module not in permitted:
-                offenders[str(path.relative_to(ROOT))] = root_module
+            for root_module in roots:
+                if root_module and root_module not in permitted:
+                    offenders.setdefault(str(path.relative_to(ROOT)), set()).add(root_module)
+
     assert offenders == {}, f"the core must not depend on anything third-party: {offenders}"
 
 

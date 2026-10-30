@@ -80,13 +80,15 @@ src/stocktake/
     http.py              fetch with timeouts and one retry, the six-hour cache, OfflineError / RateLimited
     pypi.py  npm.py  github.py  osv.py
   report/
-    text.py  json.py     (sarif.py, summary: planned, M4)
+    choices.py           which statuses a narrowed report shows, shared so --only means one thing everywhere
+    text.py  json.py  sarif.py  summary.py
   pytest_plugin.py       the opt-in check as one pytest item, plus assert_dependencies_are_safe.
                          The only module that imports pytest, and only ever imported under pytest (ADR 0007).
   templates/
     dependency_test_template.py   the test file `stocktake init` writes; package data, not imported
-  vendor.py              (planned, M4) building the single-file copy
+  vendor.py              generating the single-file copy: dependency order, hoisted imports, and four refusals
 tests/                   mirrors the above, plus test_guards.py for the checks on StockTake itself
+vendored/                the generated single-file copy, committed so a test can prove it is current
 conftest.py              at the root, solely because `pytest_plugins = ["pytester"]` has to live there
 docs/
 ```
@@ -98,6 +100,7 @@ Boundaries that matter:
 - **`cli.py` is the only module that knows about exit codes or prints.**
 - **`check.py` owns the rules, and owns them once.** What fails a build, what only warns, what cannot be judged at all. The CLI maps them to exit codes; the plugin maps them to fail/warn/skip. Neither works them out for itself, or the two would drift and a project's suite would start disagreeing with its own command line.
 - **`pytest_plugin.py` is the only module that imports pytest**, and it is only ever imported under pytest. A guard test enforces that.
+- **The core has to stay concatenatable.** `vendor.py` emits every core module into one flat file, so no two of them may define the same top-level name and none may import something the copy leaves out. The generator refuses rather than emitting in either case, and a test runs it on every commit. In practice this costs nothing — there are no collisions across 30 files and 178 top-level names — but it is a constraint the core now lives under.
 
 ### Adding an ecosystem
 A reader is a stateless function with a declared interest, registered by a decorator:

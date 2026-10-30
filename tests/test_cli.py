@@ -5,7 +5,7 @@ A caller should be able to branch on the exit code without parsing anything, so 
 
 import json
 
-from stocktake.cli import INCOMPLETE, OK, UNSAFE, build_parser, run
+from stocktake.cli import INCOMPLETE, OK, UNSAFE, build_parser, main, run, vendor
 
 from helpers import TODAY, FakeNet, advisory_detail, registries
 
@@ -211,6 +211,77 @@ def test_the_note_is_left_out_when_no_declared_range_went_unresolved(tmp_path):
     _code, text = check(tmp_path, root, FakeNet(), installed=None)
     assert "NOTE:" not in text
     assert "UNPINNED" in text
+
+
+# ---------- the other formats ----------
+def test_every_format_renders_and_none_changes_the_exit_code(tmp_path):
+    net = FakeNet(pypi={"a": ("1.0", [])}, osv={("a", "1.0"): ["GHSA-1"]}, details={"GHSA-1": advisory_detail("bad")})
+    root = project(tmp_path)
+    for shape in ("text", "json", "sarif", "summary"):
+        code, text = check(tmp_path, root, net, ["--format", shape])
+        assert code == UNSAFE, f"{shape} must not change the verdict"
+        assert text.strip(), shape
+
+
+def test_the_summary_format_is_one_line(tmp_path):
+    _code, text = check(tmp_path, project(tmp_path), FakeNet(pypi={"a": ("2.0", [])}), ["--format", "summary"])
+    assert text == "stocktake: nothing unsafe, 1 outdated (1 checked)"
+
+
+def test_the_sarif_format_is_a_sarif_log(tmp_path):
+    net = FakeNet(pypi={"a": ("1.0", [])}, osv={("a", "1.0"): ["GHSA-1"]}, details={"GHSA-1": advisory_detail("bad")})
+    _code, text = check(tmp_path, project(tmp_path), net, ["--format", "sarif"])
+    log = json.loads(text)
+    assert log["version"] == "2.1.0"
+    assert log["runs"][0]["results"][0]["ruleId"] == "vulnerable"
+
+
+def test_narrowing_applies_to_sarif_too(tmp_path):
+    net = FakeNet(pypi={"a": ("1.0", []), "b": ("2.0", [])}, osv={("a", "1.0"): ["GHSA-1"]}, details={"GHSA-1": advisory_detail("bad")})
+    root = project(tmp_path, dockerfile="FROM x\nRUN pip install a==1.0 b==1.0\n")
+    _code, everything = check(tmp_path, root, net, ["--format", "sarif"])
+    _code, unsafe_only = check(tmp_path, root, net, ["--format", "sarif", "--only", "vulnerable"])
+    assert {r["ruleId"] for r in json.loads(everything)["runs"][0]["results"]} >= {"vulnerable", "outdated"}
+    assert {r["ruleId"] for r in json.loads(unsafe_only)["runs"][0]["results"]} == {"vulnerable"}
+
+
+def test_the_json_report_says_which_config_file_was_used(tmp_path):
+    root = project(tmp_path)
+    (root / ".stocktake.toml").write_text('exclude = ["nothing"]\n', encoding="utf-8")
+    _code, text = check(tmp_path, root, FakeNet(pypi={"a": ("1.0", [])}), ["--format", "json"])
+    assert json.loads(text)["config_source"].endswith(".stocktake.toml")
+
+
+# ---------- the vendor command ----------
+def test_the_vendor_command_writes_a_self_contained_file(tmp_path):
+    printed: list[str] = []
+    assert vendor([str(tmp_path)], out=printed.append) == OK
+    written = tmp_path / "stocktake_vendored.py"
+    assert written.is_file()
+    assert "wrote" in printed[0] and "run_check()" in "\n".join(printed)
+    assert "import stocktake" not in written.read_text(encoding="utf-8").split('"""', 2)[2]
+
+
+def test_the_vendor_command_defaults_to_where_it_is_pointed(tmp_path):
+    assert vendor([], root=tmp_path, out=lambda text: None) == OK
+    assert (tmp_path / "stocktake_vendored.py").is_file()
+
+
+def test_the_vendor_command_refuses_a_place_it_cannot_write(tmp_path):
+    blocked = tmp_path / "stocktake_vendored.py"
+    blocked.mkdir()
+    assert vendor([str(tmp_path)], out=lambda text: None) == INCOMPLETE
+
+
+def test_both_subcommands_are_reachable_through_the_entry_point(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert main(["vendor"]) == OK
+    assert (tmp_path / "stocktake_vendored.py").is_file()
+
+
+def test_the_main_help_points_at_the_subcommands():
+    help_text = build_parser().format_help()
+    assert "stocktake init" in help_text and "stocktake vendor" in help_text
 
 
 def test_the_help_text_explains_the_exit_codes_and_what_leaves_the_machine():

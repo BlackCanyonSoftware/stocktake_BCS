@@ -151,15 +151,44 @@ A Python project that would rather not have another file can use a `[tool.stockt
 stocktake                              # the full report
 stocktake --only vulnerable            # just what must be fixed
 stocktake --only outdated              # what must be fixed, then what is behind
+stocktake --format summary             # one line, for a status bar or a CI step name
 stocktake --format json                # for another program
+stocktake --format sarif               # for an editor, or GitHub code scanning
 stocktake --refresh                    # ignore the six-hour cache
 stocktake --root ../other-project      # check a different project
 stocktake --environment /path/to/venv  # resolve ranges against this environment
 stocktake --all-advisories             # every advisory, not the worst five
 stocktake init                         # write the check into this project's test suite
+stocktake vendor .                     # write the core as one self-contained file
 ```
 
-`stocktake --help` and `stocktake init --help` are the full reference. `python -m stocktake` works too.
+`stocktake --help`, `stocktake init --help` and `stocktake vendor --help` are the full reference. `python -m stocktake` works too.
+
+### In CI
+
+`--format sarif` produces a SARIF 2.1.0 log, so the findings appear in GitHub's code-scanning view on the lines they came from, and in any editor that reads SARIF. Vulnerable and withdrawn releases and overdue policy entries are **errors**; newer releases, unpinned installs and anything that could not be looked up are **notes**; `--only` narrows it exactly as it narrows the text report. The output is validated against the published SARIF schema by this project's own test suite, not just by eye.
+
+```yaml
+- run: python -m stocktake --format sarif > stocktake.sarif || true
+- uses: github/codeql-action/upload-sarif@v4
+  with:
+    sarif_file: stocktake.sarif
+```
+
+`--format summary` is the one-liner for a step name or a status bar: `stocktake: 3 vulnerable (392 checked)`.
+
+### No dependency at all
+
+For a project that cannot take one, `stocktake vendor .` writes `stocktake_vendored.py`: the whole core as a single self-contained file, standard library only, nothing to install.
+
+```python
+import stocktake_vendored as stocktake
+
+report = stocktake.run_check(Path("."))
+assert stocktake.failure_text(report) is None
+```
+
+It is generated from the package, never written by hand, and this project's tests regenerate it and insist the committed copy is identical — then run it against the package on the same project and insist all three report formats match. What it does not include, because a single file cannot carry them: the pytest plugin, `stocktake init`, and the command line.
 
 ## In your test suite
 

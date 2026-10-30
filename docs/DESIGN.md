@@ -56,8 +56,10 @@ Every one of these is a state the report must handle, and each has a test:
 ## Report formats
 - **`text`** (default) — for a person at a terminal. The layout below.
 - **`json`** — one object, every field, stable keys. For another program, including the author's own project dashboards.
-- **`sarif`** — SARIF 2.1.0, one result per finding with a physical location of file and line, so GitHub code scanning and editors can place them. (M4)
-- **`summary`** — one line, for a status bar or a CI step name. (M4)
+- **`sarif`** — SARIF 2.1.0, one result per finding with a physical location of file and line, so GitHub code scanning and editors can place them. What becomes a result is a judgement, not a translation: failures are `error`, informational findings are `note`, a dependency with nothing wrong with it is not a result at all, and a `held` dependency is a decision the project already recorded and does not need shown back. Anything about the *run* rather than a dependency goes in the invocation's notifications, where SARIF puts that.
+- **`summary`** — one line, verdict first, because that is the part that survives being truncated into a status bar.
+
+`--only` narrows every one of them identically; the mapping lives in one place (`report/choices.py`) so it cannot mean different things in different formats.
 
 ### The text layout
 From a real run, abridged:
@@ -99,12 +101,13 @@ Rules the layout follows:
 
 ## CLI shape
 ```
-stocktake [--root PATH] [--format text|json] [--only all|outdated|vulnerable]
+stocktake [--root PATH] [--format text|json|sarif|summary] [--only all|outdated|vulnerable]
           [--config PATH] [--environment PATH] [--refresh] [--all-advisories] [--version]
-stocktake init [PATH] [--tests PATH] [--force]
+stocktake init   [PATH] [--tests PATH] [--force]
+stocktake vendor [PATH]
 ```
 
-Planned (docs/ROADMAP.md): `--format sarif|summary` and `stocktake vendor PATH` (write the single-file copy) in M4.
+`init` never overwrites without `--force`, because the file it writes becomes the project's own. `vendor` always overwrites, because the file it writes is generated and refreshing it is the whole point — and the file itself says not to edit it.
 
 Inside a test suite the same rules reach the reader as pytest's own vocabulary rather than as a report: a **failure** carries the narrowed report as its message, a newer release is a **warning** in the summary, and an unreachable registry is a **skip** with its reason. That mapping is the whole of the plugin; the rules themselves are shared with this command (`stocktake.check`).
 

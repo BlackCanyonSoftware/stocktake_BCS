@@ -66,7 +66,7 @@ def run_check(
         notes.clear()
 
     asking = registries if registries is not None else Registries(Cache(ttl=settings.cache_ttl_seconds, refresh=refresh))
-    report = evaluate(deps, asking, settings.policy, today, unread_manifests(root, settings), notes)
+    report = evaluate(deps, asking, settings.policy, today, unread_manifests(root, settings), notes, settings.source)
     asking.flush()
     return report
 

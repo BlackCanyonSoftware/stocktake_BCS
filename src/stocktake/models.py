@@ -113,9 +113,10 @@ class Report:
     today: str = ""
     unread_manifests: tuple[str, ...] = ()  # manifests no reader understands, which the project has not acknowledged
     accepted_unread: tuple[str, ...] = ()  # the same, but accepted in the project's config: not reported, still recorded
-    notes: tuple[
-        str, ...
-    ] = ()  # things about this run the reader needs to know to judge it, such as an environment that could not be found
+    # Things about this run the reader needs in order to judge it, such as an environment that could not be found.
+    notes: tuple[str, ...] = ()
+    # The config file this run used, so a policy problem can be pointed at the file that caused it.
+    config_source: str | None = None
 
     @property
     def failed(self) -> bool:

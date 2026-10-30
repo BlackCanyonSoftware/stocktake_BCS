@@ -54,3 +54,33 @@ jobs:
         run: python -m stocktake
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  code-scanning:
+    name: Upload the findings to code scanning
+    runs-on: ubuntu-latest
+    # Only on a push to this repository: a pull request from a fork has no permission to write
+    # security events, and failing CI for that would be a poor welcome to a contributor.
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - run: python -m pip install -e .
+
+      - name: Produce the SARIF
+        # Exit 1 means it found something unsafe, which is exactly what there is to upload.
+        run: python -m stocktake --format sarif > stocktake.sarif || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: stocktake.sarif
+          category: stocktake

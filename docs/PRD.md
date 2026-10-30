@@ -105,9 +105,9 @@ The measure of success is boring: it stays switched on. A checker that fails the
 - ~~Python lockfile readers: `uv.lock`, `poetry.lock`, `Pipfile.lock`~~ (done, M1, plus `pdm.lock` and `Pipfile`)
 - ~~npm reader plus registry.npmjs.org and OSV `npm`~~ (done, M3; `yarn.lock` and `pnpm-lock.yaml` moved to M6, since both need YAML)
 - ~~GitHub Actions `uses:` pins~~ (done, M3); Docker `FROM` tags and digests (moved to M6: needs an authenticating registry client)
-- SARIF output; `--format summary`
-- `stocktake vendor` single-file copy with its guard tests
-- A GitHub Actions workflow in this repo running its own check
+- ~~SARIF output; `--format summary`~~ (done, M4; the SARIF is validated against the published schema in the test suite)
+- ~~`stocktake vendor` single-file copy with its guard tests~~ (done, M4)
+- ~~A GitHub Actions workflow in this repo running its own check~~ (done, M0; it uploads the SARIF to code scanning as of M4, unverified until pushed)
 
 **Could have**
 - Go (`go.mod`, proxy.golang.org, OSV `Go`) and Rust (`Cargo.toml`/`Cargo.lock`, crates.io, OSV `crates.io`)

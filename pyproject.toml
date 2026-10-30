@@ -33,7 +33,10 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.14", "mypy>=1.18"]
+# Development only. `jsonschema` is here for one job: validating the SARIF output against the official
+# SARIF 2.1.0 schema, so "it is valid SARIF" is a checked claim rather than an opinion. SARIF exists for
+# interoperability, and an interop format nobody validated is a guess.
+dev = ["pytest>=8", "ruff>=0.14", "mypy>=1.18", "jsonschema>=4.18"]
 
 [project.urls]
 Homepage = "https://github.com/BlackCanyonSoftware/stocktake_BCS"
@@ -60,7 +63,9 @@ line-length = 140
 target-version = "py311"
 src = ["src", "tests"]
 # Snippets in the docs are illustrative prose, not code to be reformatted.
-extend-exclude = ["*.md"]
+# `vendored/` is generated: it is the concatenation of files that were each already linted here, and
+# reformatting it would break the byte-for-byte guard that proves it is current.
+extend-exclude = ["*.md", "vendored"]
 
 [tool.ruff.lint]
 select = [
@@ -109,7 +114,7 @@ warn_unreachable = true
 # The template is written into other people's projects, where pytest is present and
 # StockTake's own typing conventions are not the point. A pytester test runs it for real,
 # which is stronger evidence that it works than type-checking it here would be.
-exclude = ["src/stocktake/templates/"]
+exclude = ["src/stocktake/templates/", "vendored/"]
 
 [[tool.mypy.overrides]]
 # `packaging` is an optional import that may legitimately be absent (ADR 0001).

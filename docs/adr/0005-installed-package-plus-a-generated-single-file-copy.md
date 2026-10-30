@@ -32,6 +32,17 @@ The vendored file bundles every reader and has no configuration discovery beyond
 
 This is M4 work. M0 ships the package alone, because a vendoring step for code whose shape is still settling is wasted effort.
 
+## Amendment, 2026-10-30 (built in M4)
+Two things turned out differently in the building, both recorded here rather than left to be discovered:
+
+**The equivalence guard is a focused test, not the whole suite run twice.** This record promised that "the core behavioural test suite is parameterised over both the package and the vendored module". That is not what shipped. The copy is one flat module, so `from stocktake.readers.npm import parse_npm_spec` cannot resolve against it; making the existing suite run against the copy would mean registering synthetic submodule entries in `sys.modules` and then excluding the handful of tests that inspect `__module__` or read the package's files from disk. A guard that needs a list of exceptions is a guard nobody trusts.
+
+What shipped instead compares the two on what actually matters: both are run against one fixture project exercising five readers — a Dockerfile, a `pyproject.toml`, a `requirements-dev.txt`, a `package.json`, a workflow, and an unread `go.mod` — through the same fake network, and the **text, JSON and SARIF reports must be identical**. A second test asserts that fixture really does produce vulnerable, outdated, unpinned and current findings across three ecosystems, so the comparison cannot pass by saying nothing. That is a narrower claim than "every test runs twice" and a much stronger one than the alternative, which was a guard with a footnote.
+
+**The generator refuses rather than emitting, in four cases**, which is where most of its value turned out to be: two modules defining the same top-level name (in one flat file the second wins silently, giving wrong answers rather than crashes), a module importing something deliberately left out, an import cycle, and nothing to copy. The third of those caught a real bug immediately — `cli.py` imports `init_project.py`, which is not in the copy, so the command line had to be excluded too. Dependency order is computed from the imports rather than listed, so the generator cannot fall behind the package.
+
+The byte-for-byte guard also earns its keep straight away: a `ruff format` pass touched one core module and the committed copy went stale within the same session. The test caught it.
+
 ## Consequences
 - **Good.** Every project the author has can take the check, including the ones that cannot take a dependency.
 - **Good.** One source of truth. A vendored copy that has gone stale fails a test here rather than drifting unnoticed in someone else's repository.

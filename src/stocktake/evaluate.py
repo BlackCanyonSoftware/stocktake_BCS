@@ -99,6 +99,7 @@ def evaluate(
     today: date | None = None,
     unread: Unread | None = None,
     notes: Sequence[str] = (),
+    config_source: str | None = None,
 ) -> Report:
     """What one run of the check found."""
     today = today or datetime.now(UTC).date()
@@ -134,4 +135,5 @@ def evaluate(
         unread_manifests=unread.reported,
         accepted_unread=unread.accepted,
         notes=tuple(notes),
+        config_source=config_source,
     )

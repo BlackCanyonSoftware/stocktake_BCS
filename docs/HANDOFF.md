@@ -1,9 +1,9 @@
 # StockTake: handoff
 
 ## Current state
-**Milestones 0 to 3 are done and verified**, except container tags, which moved to M6 (see the roadmap for why). The tool installs, runs against real projects, prints correct reports, and drops into another project's pytest suite in one line. 342 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking.
+**Milestones 0 to 4 are done and verified**, except container tags, which moved to M6 (see the roadmap for why). 407 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. The next session starts Milestone 5: the public polish.
 
-It reads **four ecosystems**: `python` (seven manifest kinds), `npm` (`package.json`, `package-lock.json`, `node_modules`), `workflows` (GitHub Actions pins) and `binaries` (GitHub release downloads). The next session starts Milestone 4: SARIF, `--format summary`, and the vendored single file.
+It reads **four ecosystems**: `python` (seven manifest kinds), `npm` (`package.json`, `package-lock.json`, `node_modules`), `workflows` (GitHub Actions pins) and `binaries` (GitHub release downloads). It reports as text, JSON, SARIF or one line. It drops into another project's pytest suite in one line, writes its own test file with `stocktake init`, and writes itself as one dependency-free file with `stocktake vendor`.
 
 **It checks itself through its own plugin.** `stocktake = true` is in this repository's `pyproject.toml`, so every `pytest` run here exercises the thing other projects will use. If the plugin breaks, this suite notices first.
 
@@ -12,7 +12,8 @@ Commits are local only. Nothing has been pushed; CI has therefore never run and 
 ```bash
 py -3.11 -m venv .venv
 ./.venv/Scripts/python -m pip install -e ".[dev]"   # .venv/bin/python on macOS and Linux
-./.venv/Scripts/python -m pytest                    # 342 tests, ~5s (includes the live check, via the plugin)
+./.venv/Scripts/python -m pytest                    # 407 tests, ~6s (includes the live check, via the plugin)
+./.venv/Scripts/stocktake vendor vendored/          # after ANY change to the core, or a test fails
 ./.venv/Scripts/python -m stocktake                 # check this project itself
 ```
 
@@ -30,15 +31,16 @@ It is a generalisation of `modules/depcheck` in the author's `ai-suite` reposito
 - A declared range is resolved against the *project's* environment or not at all, never against StockTake's own — [ADR 0006](adr/0006-which-environment-an-installed-version-comes-from.md)
 - The pytest plugin is **opt-in**; installing the package must change nothing about anybody's test run — [ADR 0007](adr/0007-the-pytest-plugin-is-opt-in.md)
 - A tag its publisher advances (`@v7`, `python:3.12`) is a range, compared only to the precision it names — [ADR 0008](adr/0008-a-tag-its-publisher-moves-is-a-range.md)
+- The vendored copy's equivalence guard is a focused comparison, not the whole suite run twice — the amendment on [ADR 0005](adr/0005-installed-package-plus-a-generated-single-file-copy.md)
 - Scope confirmed by the owner on 2026-10-29: Python + npm + GitHub Actions + container tags for v1; MIT licence; package plus vendor command; leave `ai-suite` alone.
 
 ## Work in progress
-None. M0 to M3 are complete; M4 has not been started.
+None. M0 to M4 are complete; M5 has not been started.
 
 ## Next steps
-1. **Adopt it.** This is now the highest-value thing available, and it has been since M2. Every one of the author's Python *and* JavaScript projects can take the check with one line (`stocktake = true`) or one command (`stocktake init`), and the four ecosystems cover everything found on the machine so far. It is the only way to find the false positives — the two that have been found so far were both found this way, and both became decisions ([ADR 0006](adr/0006-which-environment-an-installed-version-comes-from.md), [ADR 0008](adr/0008-a-tag-its-publisher-moves-is-a-range.md)).
-2. **Milestone 4** ([ROADMAP.md](ROADMAP.md)): SARIF output, `--format summary`, and `stocktake vendor` — the generated single file, with the two guard tests that keep it honest.
-3. Milestone 5 covers the public polish: `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md`/`CLAUDE.md`, a logo from the brand kit, and the decision about publishing to PyPI.
+1. **Adopt it.** The highest-value thing available, and it has been since M2. Every one of the author's Python *and* JavaScript projects can take the check with one line (`stocktake = true`) or one command (`stocktake init`), and the four ecosystems cover everything found on this machine. It is the only way to find the false positives — all three found so far were found this way, and each became a decision or a fix ([ADR 0006](adr/0006-which-environment-an-installed-version-comes-from.md), [ADR 0008](adr/0008-a-tag-its-publisher-moves-is-a-range.md), the connection retry).
+2. **Milestone 5** ([ROADMAP.md](ROADMAP.md)): `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md`/`CLAUDE.md`, a logo from the brand kit, and the decision about publishing to PyPI. The feature work is far enough ahead of the presentation now that this is the gap.
+3. **Push, so CI is verified for the first time.** It has never run. The new code-scanning upload step in particular cannot be verified any other way.
 
 **Known findings in the author's own repositories, not acted on and not raised as changes:**
 - `Documents/Brand Logos`: installed Pillow 11.2.1 has 58 advisories (5 critical), fonttools 4.58.0 has 1. Both declared as ranges, so the pins are not wrong — the installed versions are old. Its CI also pins `actions/checkout@v4` and `actions/setup-python@v5`, three majors behind.
@@ -54,7 +56,9 @@ None. M0 to M3 are complete; M4 has not been started.
 - **A real finding in one of the author's own projects.** Pointed at the brand-kit repository with `--environment`, it reported 58 advisories (5 critical) against the installed Pillow 11.2.1 and one against fonttools 4.58.0. Both are declared as ranges (`Pillow>=10.0`, `fonttools>=4.40`), so nothing was pinned wrongly — the installed versions are simply old. **This has not been acted on and the owner has not been asked about it.**
 - **A real 392-package Node project (`DayandNight_BCS`), against `npm audit`.** Exact agreement: the same two vulnerable packages, the same severities, the same four advisories on `fast-uri`. StockTake additionally named the fix versions. An uncached run took 23 seconds.
 - **The workflows reader on two real repositories.** It found genuine major gaps in the brand kit (`actions/checkout@v4` → 7.0.1) while correctly staying silent about this repository's own `@v7` pins.
-- **Not covered:** CI (never pushed), macOS, Python 3.12, container base images, yarn and pnpm lock files, and any ecosystem beyond the four.
+- **The SARIF from a real project validates against the published SARIF 2.1.0 schema.** 195 results from the 392-package project, 3 errors and 192 notes, located at `package-lock.json`. The validator was checked against a deliberately broken `level` to confirm it actually refuses things.
+- **The vendored single file, run standalone.** Copied to a directory of its own and executed by a different interpreter with no `stocktake` installed, against the same real project: the same three vulnerable findings. That is US-013 as written.
+- **Not covered:** CI (never pushed, and the new code-scanning upload step especially), macOS, Python 3.12, container base images, yarn and pnpm lock files, and any ecosystem beyond the four.
 
 ## Where the source to port from lives
 On KPrime, in `/home/kyle1/ai-suite`. Use `bash ~/.claude/bin/kp '<command>'` to run anything there, and `kpf` for a script; never hand-quote through `ssh`. Still unported, for later milestones:
@@ -88,6 +92,10 @@ These come from the original's first real run and from building M0. None should 
 - **`normalize` is not what a registry is asked for.** `normalize` is StockTake's internal comparison key, the same rule for every ecosystem, used for policy matching and advisory keys. `registry_name` is what goes on the wire: PyPI normalises, npm is case-sensitive and takes the name as written. Mixing them up means 404s on scoped npm packages.
 - **`api.github.com` fails TLS verification intermittently on this machine.** Two of three requests failed in one run and the same URLs worked later. That is why `default_fetch` retries once. If it ever gets worse, the cause is worth finding; it looks like TLS interception rather than anything in the tool.
 - **`npm audit` is the right thing to check the npm reader against**, and npm 11.20.0 is installed on this machine. `npm audit --json` on a project, then compare: the comparison script is in the session scratchpad, not the repository.
+- **Regenerate `vendored/` after any change to the core**, with `stocktake vendor vendored/`. A test fails when it is stale, which is how this is remembered; a `ruff format` pass is enough to stale it.
+- **Loading the vendored file by path needs it in `sys.modules` first.** An ordinary `import stocktake_vendored` does that; `module_from_spec` + `exec_module` without it breaks `@dataclass` under postponed annotations, because the dataclass machinery looks the module up there to resolve `ClassVar`. `tests/test_vendor.py` has the working loader.
+- **The core must stay concatenatable.** No two core modules may define the same top-level name, and none may import something `vendor.py` excludes (the command line, `init_project`, the pytest plugin). The generator refuses rather than emitting, so this shows up as a clear failure rather than a subtly wrong copy.
+- **A guard written by matching lines will bite you.** The stdlib-only guard used to scan for lines starting with `import`, and `vendor.py`'s docstring contains an example `import stocktake_vendored`. It now parses with `ast`, which also catches imports inside functions.
 
 ## Projects to try it on (M5)
 The owner has about ten repositories available for this, and the list is the most valuable thing M5 can have. Known so far:
@@ -100,6 +108,9 @@ The owner has about ten repositories available for this, and the list is the mos
 In [PRD.md](PRD.md) under "Open questions". None block M1. The one worth deciding soonest: whether to publish `stocktake` to PyPI now (the name is free as of 2026-10-29) or wait until there are two real consumers.
 
 ## Session log
+### Session 6 — 2026-10-30
+Built Milestone 4: SARIF 2.1.0 output (validated against the published schema by the test suite, with `jsonschema` added to the dev extra for that one job), `--format summary`, and `stocktake vendor` — a generator that emits the core as one flat file in computed dependency order and refuses rather than emitting on a duplicated name, a missing dependency, a cycle or an empty core. The copy is committed in `vendored/` and three guards hold it in place. Amended [ADR 0005](adr/0005-installed-package-plus-a-generated-single-file-copy.md) where the equivalence guard differs from what it promised. 342 → 407 tests. The vendored file was verified standalone, by another interpreter with nothing installed, against a real 392-package project. Committed locally; not pushed.
+
 ### Session 5 — 2026-10-30
 Built Milestone 3 except containers: the `npm` ecosystem (`package.json`, `package-lock.json` in both layouts, ranges resolved against `node_modules` including hoisting, the npm registry, OSV's `npm` ecosystem) and the `workflows` ecosystem (GitHub Actions `uses:` pins, with commit SHAs read from the conventional version comment). SemVer comparison added, so version rules are now per ecosystem. Two problems found by running it on real projects and fixed: the moving-tag false positive ([ADR 0008](adr/0008-a-tag-its-publisher-moves-is-a-range.md)) and transient connection failures becoming false `unknown`s. Containers and the YAML lock files moved to M6 with reasons. 270 → 342 tests. Verified against `npm audit` on a real 392-package project, with exact agreement. Committed locally; not pushed.
 

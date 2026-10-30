@@ -14,14 +14,7 @@ from collections.abc import Sequence
 
 from stocktake.advisories import fix_target, severity_tally
 from stocktake.models import STATUSES, Finding, Report
-
-ONLY_CHOICES: tuple[str, ...] = ("all", "outdated", "vulnerable")
-
-_SHOWN_FOR = {
-    "all": set(STATUSES),
-    "outdated": {"vulnerable", "yanked", "outdated"},
-    "vulnerable": {"vulnerable", "yanked"},
-}
+from stocktake.report.choices import shown_statuses
 
 _HINT = "stocktake --only vulnerable --all-advisories"
 
@@ -64,7 +57,7 @@ def _vulnerable_row(finding: Finding, width: int, all_advisories: bool, top: int
 
 def render_text(report: Report, only: str = "all", all_advisories: bool = False, top: int = 5) -> str:
     """The whole report as text. `only` narrows it to what needs action; `top` is how many advisories a package shows before they are counted."""
-    shown = _SHOWN_FOR.get(only, _SHOWN_FOR["all"])
+    shown = shown_statuses(only)
     width = _source_width(report.findings)
     lines = [_headline(report)]
 

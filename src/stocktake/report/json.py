@@ -35,6 +35,7 @@ def as_dict(report: Report) -> dict[str, Any]:
         "failed": report.failed,
         "counts": report.counts,
         "notes": list(report.notes),
+        "config_source": report.config_source,
         "policy_problems": list(report.policy_problems),
         "unread_manifests": list(report.unread_manifests),
         # Manifests the project has accepted as unreadable. Not in the text report, because it asked not to be nagged — but never invisible.
