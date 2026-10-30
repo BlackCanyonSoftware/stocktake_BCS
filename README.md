@@ -1,9 +1,11 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)"
-          srcset="docs/brand/lockup/banner/lockup-horizontal-dark-banner.png">
-  <img alt="StockTake" width="480"
-       src="docs/brand/lockup/banner/lockup-horizontal-light-banner.png">
-</picture>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)"
+            srcset="docs/brand/lockup/banner/lockup-horizontal-dark-banner.png">
+    <img alt="StockTake" width="480"
+         src="docs/brand/lockup/banner/lockup-horizontal-light-banner.png">
+  </picture>
+</p>
 
 # StockTake
 
