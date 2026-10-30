@@ -1,0 +1,9 @@
+{
+  "brand": "stocktake",
+  "files": {
+    "lockup/banner/lockup-horizontal-dark-banner.png": "66753dc14bd54a1a02a3df6486162aab5938d8291cfeed502b90ab7e2e0bcafb",
+    "lockup/banner/lockup-horizontal-light-banner.png": "77dc217bd6901bc42a84c05833df036444284183336ac7e89933ff5831f263bd"
+  },
+  "note": "The readme set of this brand - the two images a repository's front page shows: the banner lockup, light and dark, for a <picture> block that follows the reader's own page colour. Every file with a hash of it. The folder names are part of it: a copy that renames or flattens them is a copy nothing written down describes. Export with: brandkit bundle stocktake <folder> --set readme. Check a copy with: brandkit check stocktake <folder> --set readme.",
+  "set": "readme"
+}

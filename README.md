@@ -1,3 +1,10 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)"
+          srcset="docs/brand/lockup/banner/lockup-horizontal-dark-banner.png">
+  <img alt="StockTake" width="480"
+       src="docs/brand/lockup/banner/lockup-horizontal-light-banner.png">
+</picture>
+
 # StockTake
 
 **A stock-take of what your project depends on.** It reads what the project pins, asks the public registries whether a newer release exists and whether the pinned one has a known security advisory, and fails your tests only when something is actually unsafe.
@@ -379,6 +386,8 @@ Stated plainly, because they are decisions and not omissions:
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE). Contributions are welcome; [CONTRIBUTING.md](CONTRIBUTING.md) says how the pieces fit and which rules are not up for negotiation.
+The code is MIT. See [LICENSE](LICENSE). Contributions are welcome; [CONTRIBUTING.md](CONTRIBUTING.md) says how the pieces fit and which rules are not up for negotiation.
+
+The StockTake and Black Canyon Software marks in `docs/brand/` are **not** part of that grant. They are generated output from the brand kit, not source: refresh them with `brandkit bundle stocktake docs/brand --set readme` and verify them with `brandkit check stocktake docs/brand --set readme`, rather than editing them in place.
 
 StockTake is made by [Black Canyon Software](https://blackcanyonsoftware.com).

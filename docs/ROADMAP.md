@@ -131,8 +131,10 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 
 **Settled after the push on 2026-10-30:** CI passes on all four matrix jobs — Windows and Ubuntu, 3.11 and 3.13 — which is the first time Linux has been exercised at all. `pip install git+…` was verified in a clean 3.13 environment to give the complete build, so the install route the README documents for CI is correct. `pip install stocktake` still fails, by choice.
 
+**Settled after M5, on 2026-10-30:**
+- **The logo is in.** The owner added a `stocktake` brand to the kit, but `BRAND.md` named eight jobs and a repository README was not one of them — and that file's own rule is to ask rather than pick a file that looks close, which mattered because `dist/stocktake/lockup/` holds roughly 150 plausible candidates. Rather than guess, a session in the brand repository added a ninth job, "The top of a repository's README", which names the light and dark banner lockups and the `<picture>` block to paste, and a `--set readme` mode so a repository takes the two files it needs instead of the 41 a web application needs. StockTake's copy came from `brandkit bundle stocktake docs/brand --set readme`, and `brandkit check` verifies it. The README says the marks are not covered by the MIT grant.
+
 **Left for the owner, not decided here:**
-- **The logo.** The brand kit has no `stocktake` brand, and its own note says to ask when a brand has no generated assets. The company's shared mark exists at `Brand Logos/dist/black-canyon-software/` in several lockups; whether StockTake should borrow that or get an entry of its own in the kit is a branding decision, and that work belongs in the brand repository rather than this one.
 - **PyPI.** The packaging metadata is complete and the name was still unclaimed on 2026-10-30. Publishing is outward-facing and effectively permanent, so it waits for an explicit decision.
 
 ## Now

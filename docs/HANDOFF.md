@@ -50,7 +50,7 @@ The owner pushed through `1b01058` on 2026-10-30, and everything that could not 
 None. M0 to M5 are complete; M6 has not been started.
 
 ## Next steps
-1. **Two decisions the owner has to make**, both recorded in [ROADMAP.md](ROADMAP.md) under M5 and in the PRD's open questions: whether to publish to PyPI (metadata is ready, the name was free on 2026-10-30), and whether StockTake gets its own brand-kit entry or borrows the company mark. Neither is a coding task; the second one's work lives in the brand repository.
+1. **One decision the owner has to make**, recorded in [ROADMAP.md](ROADMAP.md) under M5 and in the PRD's open questions: whether to publish to PyPI. The metadata is ready and the name was free on 2026-10-30. Not a coding task.
 2. **Adoption in the owner's other projects belongs to those projects' own sessions**, not to this one. They have been *read* — which is how three bugs were found — and nothing in any of them has been changed. The findings for each are listed further down, so a session working in one of them can start from a concrete list.
 3. **Milestone 6** when there is appetite: container tags and the YAML lock files, both carried over from M3 with reasons.
 
@@ -117,6 +117,15 @@ These come from the original's first real run and from building M0. None should 
 - **pytest's config section name differs by file**, and the README has the table: `[tool.pytest.ini_options]` in `pyproject.toml`, `[pytest]` in `pytest.ini` and `tox.ini`, and **`[tool:pytest]`** in `setup.cfg` — where a plain `[pytest]` is an error pytest refuses outright. The README originally said `[pytest]` for all three; verified and corrected.
 - **The README is now the adoption instruction set**, for people and for AI assistants, with a section addressed to the latter. Every command and both code snippets in it were run against a scratch project; if you change the CLI, re-run that check rather than trusting the prose.
 - **Do not work in the owner's other repositories from this session.** Adoption in those projects belongs to their own sessions. Reading them to test StockTake is fine and is how three bugs were found; changing them is not.
+- **The logo in `docs/brand/` is generated output, not source.** It came from the brand kit's `readme` set and the kit's own rules apply: do not edit it in place, do not flatten the folders, and do not hand-pick a different file from `Brand Logos/dist/stocktake/`. Refresh and verify it with:
+
+  ```bash
+  PYTHONPATH="C:/Users/Kpier/Documents/Brand Logos/src" py -3.13 -m brandkit bundle stocktake docs/brand --set readme
+  PYTHONPATH="C:/Users/Kpier/Documents/Brand Logos/src" py -3.13 -m brandkit check  stocktake docs/brand --set readme
+  ```
+
+  `brandkit` is not installed or on PATH; that is how to run it from its source, and its only dependencies (Pillow, fontTools) are already in the global Python 3.13. `BUNDLE.json` beside the images is what `check` compares against, so leave it there.
+- **`BRAND.md` in `Brand Logos/dist/stocktake/` is the only file to consult about the brand**, and it says so itself: if a job is not listed there, ask for one rather than picking a file that looks close. That is how the README job came to exist.
 
 ## Projects to try it on (M5)
 The owner has about ten repositories available for this, and the list is the most valuable thing M5 can have. Known so far:
@@ -129,6 +138,9 @@ The owner has about ten repositories available for this, and the list is the mos
 In [PRD.md](PRD.md) under "Open questions". None block M1. The one worth deciding soonest: whether to publish `stocktake` to PyPI now (the name is free as of 2026-10-29) or wait until there are two real consumers.
 
 ## Session log
+### Session 8 — 2026-10-30
+Pushed by the owner through `1b01058`, which verified CI on Windows and Ubuntu across 3.11 and 3.13 and confirmed GitHub accepts the SARIF. That first code-scanning run showed the job was installing without the dev extra and raising four `unpinned` notes about StockTake's own tooling; fixed. The README was rewritten as the adoption instruction set after the owner asked for it to serve that purpose — its first command did not work (`pip install stocktake` fails, nothing is published) and a claim about `setup.cfg` was wrong; both corrected and every command in it verified against a scratch project. The logo landed last, through a new brand-kit job rather than a guess.
+
 ### Session 7 — 2026-10-30
 Built Milestone 5: `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md` with `CLAUDE.md`, and a README section built out of what the real runs found. Ran the tool against four more real projects — about two thousand dependencies across Python, Node and mixed — and fixed the one class of thing it got wrong: run-level advice aimed at the wrong ecosystem, with six regression tests. Recorded one thing that looked wrong and was not. 407 → 413 tests. Left the logo and the PyPI decision to the owner, with the options written down. Committed locally; not pushed.
 

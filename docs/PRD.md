@@ -153,7 +153,7 @@ The measure of success is boring: it stays switched on. A checker that fails the
 - Should `outdated` ever be allowed to fail, behind a strictness flag, for a project that wants to stay current? (Leaning yes, off by default, decided when a project asks for it.)
 - Does the shared cache at `~/.cache/stocktake/` need locking once several projects run the check concurrently in CI?
 - **Publish to PyPI?** The metadata is complete and `stocktake` was still unclaimed on 2026-10-30. Publishing is outward-facing and effectively permanent, so it waits for a decision rather than a default. Against: there is still no consumer outside the author's own machine. For: the name, and `uv tool install stocktake` becoming true rather than aspirational.
-- **Does StockTake get its own entry in the brand kit, or borrow the company mark?** The kit has no `stocktake` brand, and the company's shared mark is generated at `Brand Logos/dist/black-canyon-software/`. Either way the work belongs in the brand repository.
+- ~~**Does StockTake get its own entry in the brand kit, or borrow the company mark?**~~ Settled 2026-10-30: it has its own brand, and the kit gained a "top of a repository's README" job naming the files to use. The README carries them.
 - Should a dependency pinned too loosely — a moving `@v7`, an npm `^1.2.3` — be a finding of its own? [ADR 0008](adr/0008-a-tag-its-publisher-moves-is-a-range.md) deliberately says nothing about it rather than conflating it with being out of date.
 - For npm, should the check read the lockfile's resolved versions only, or also flag a `package.json` range that permits a vulnerable version?
 
