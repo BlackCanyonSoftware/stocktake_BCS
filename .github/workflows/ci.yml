@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor the package claims and the newest release, on both platforms the author uses.
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Formatting
+        run: python -m ruff format --check .
+
+      - name: Type check
+        run: python -m mypy
+
+      - name: Tests
+        # The live dependency check is part of the suite. It skips rather than fails when the
+        # registries cannot be reached, and GITHUB_TOKEN raises the anonymous request limit.
+        run: python -m pytest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check our own dependencies, and show the report
+        run: python -m stocktake
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
