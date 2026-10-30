@@ -40,13 +40,17 @@ jobs:
         run: python -m mypy
 
       - name: Tests
-        # The live dependency check is part of the suite. It skips rather than fails when the
-        # registries cannot be reached, and GITHUB_TOKEN raises the anonymous request limit.
+        # The live dependency check is part of this suite, through StockTake's own plugin
+        # (stocktake = true in pyproject.toml). It skips rather than fails when the registries
+        # cannot be reached, and GITHUB_TOKEN raises the anonymous request limit.
         run: python -m pytest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Check our own dependencies, and show the report
+      - name: Show the dependency report
+        # The plugin above already made this check pass or fail. This step exists to put the
+        # full report in the log, which a test result cannot do. Served from the cache the
+        # step above wrote, so it costs no extra requests.
         run: python -m stocktake
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

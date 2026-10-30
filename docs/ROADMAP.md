@@ -2,7 +2,7 @@
 
 Status values: `planned`, `in progress`, `done`. Each milestone is a vertical slice: the tool works end to end after every one.
 
-## Now
+## Done
 
 ### M0 — Walking skeleton: a Python project is checked, end to end · size M · `done` (2026-10-30)
 **Goal.** `stocktake` installs, runs against a real Python project and prints a correct report, with the tooling and tests in place.
@@ -53,9 +53,7 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 
 **Verified.** 221 tests pass on 3.11 and 3.13; `ruff check`, `ruff format --check` and `mypy --strict` clean. The scanner still reproduces the original's output on `ai-suite`'s real manifests exactly (40 dependencies, no differences), so the M0 port fidelity is intact. Run against a project with `uv.lock` + `requirements-dev.txt`, all three new reader kinds produced correct findings against the real registries. Run against the author's brand-kit repository, pointed at its interpreter, it reported 58 advisories against the installed Pillow 11.2.1 and one against fonttools 4.58.0 — the first real finding in one of the author's own projects. CI still not verified (nothing pushed).
 
-## Next
-
-### M2 — Drops into an existing test suite · size S · `planned`
+### M2 — Drops into an existing test suite · size S · `done` (2026-10-30)
 **Goal.** Any project adds the check in one step without changing how its suite runs.
 
 **Scope.** US-010, US-011, US-012
@@ -64,6 +62,19 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 - Documented behaviour for both paths, including what a CI run sees.
 
 **Exit criteria.** A scratch project with an unrelated existing suite gains the check by adding one file, and `pytest` reports the outdated warning in its summary; with the network blocked the test skips and the suite still passes.
+
+**What actually shipped**, where it differs from the plan above:
+- **The plugin is opt-in, which the plan did not say and which turned out to be the decision of this milestone: [ADR 0007](adr/0007-the-pytest-plugin-is-opt-in.md).** A `pytest11` entry point alone would have made the check run in every suite in every environment where StockTake happened to be installed, including as a transitive dependency — adding network requests and build failures to projects whose maintainers had never heard of it. A project now switches it on with `stocktake = true`, or `--stocktake` for one run.
+- `--no-stocktake`, a registered `stocktake` marker, and an explicit node id, so the check behaves like any other test under `-k`, `-m` and `-v`.
+- `stocktake init` also writes a fully commented `.stocktake.toml`, so a project sees every key it might want without reading the README. It overwrites nothing without `--force`.
+- `check.py` is new and was not in the plan: one whole run plus the fail/warn/skip rules, shared by the command line and the plugin so the two cannot drift. The CLI lost about 25 lines to it.
+- **StockTake checks itself through its own plugin.** `stocktake = true` is in this repository's `pyproject.toml` and the hand-written live check it duplicated is gone, so the plugin's first consumer is this suite.
+- `python -O` strips `assert`, which would have quietly disabled the failure. The plugin raises `AssertionError` explicitly instead; ruff's bandit rules found it.
+- `init_project.test_file_template()` was renamed to `template_source()`: pytest collects anything named `test*`, so the original name was picked up as a test by the first test module that imported it.
+
+**Verified.** 270 tests pass on 3.11 and 3.13; ruff and strict mypy clean. Both adoption paths were run end to end against a scratch project with a suite of its own and a live network: `stocktake init` then `pytest` gave `3 passed, 1 warning` with `click 8.1.7->8.5.0` named in the summary and exit 0; `STOCKTAKE_OFFLINE=1` gave `2 passed, 1 skipped` and exit 0; deleting the file and adding `stocktake = true` gave the same warning through the injected item. The plugin's collection, opt-in, opt-out and marker behaviour are covered by `pytester` tests that run a real pytest in a scratch project. CI still not verified (nothing pushed).
+
+## Now
 
 ### M3 — npm, workflows and container tags · size M · `planned`
 **Goal.** The web projects and the CI pipelines get the same check.
@@ -107,6 +118,11 @@ Every `TODO` in the code gets a line here. There are none.
 - **Lock-file entries carry no line number**, only the file, because the TOML and JSON parsers do not report one. Findable by searching the text for the name, which is fragile; not worth it yet.
 - **`dist-info` directory names are trusted** for installed versions rather than the metadata inside them (ADR 0006). The documented layout, and what makes the lookup free.
 - **A project whose environment is in none of the usual places needs `--environment` passing once.** The brand-kit repository is this case. A config entry makes it permanent, but it has to be discovered first; the report's note is what makes that discoverable.
+
+From M2:
+- **A project that runs `stocktake init` and also sets `stocktake = true` checks itself twice.** Harmless — the second run is served entirely from the six-hour cache — and there is a test recording it, but it would be friendlier for the plugin to notice the written file and stand down.
+- **The injected item has no file of its own**, so its reported location is the project root and `--junitxml` records it with no classname. There is nowhere more honest to point, but a CI dashboard will show it oddly.
+- **`stocktake init` does not offer to switch the plugin on instead.** Someone running `init` may not know the one-line option exists; the command could say so.
 
 Carried over from the `ai-suite` original, to be addressed as noted:
 - **GitHub release downloads get no advisory check.** OSV has no good key for a release binary. The writeup's idea of mapping to the Go or Cargo module it was built from is unproven. Tracked for M6; until then the docs say plainly that these get "newest tag" only.

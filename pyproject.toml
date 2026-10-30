@@ -43,9 +43,10 @@ Issues = "https://github.com/BlackCanyonSoftware/stocktake_BCS/issues"
 [project.scripts]
 stocktake = "stocktake.cli:main"
 
-# The pytest11 entry point arrives with the plugin itself in Milestone 2.
-# Declaring it before stocktake/pytest_plugin.py exists breaks pytest collection
-# for anyone who installs the package.
+[project.entry-points.pytest11]
+# Registering the plugin does NOT switch the check on: it is opt-in, per project,
+# with `stocktake = true` in pytest's config or `--stocktake` for one run. See ADR 0007.
+stocktake = "stocktake.pytest_plugin"
 
 [tool.hatch.version]
 # One source of truth for the version; the User-Agent reads the same constant.
@@ -105,6 +106,10 @@ python_version = "3.11"
 files = ["src"]
 strict = true
 warn_unreachable = true
+# The template is written into other people's projects, where pytest is present and
+# StockTake's own typing conventions are not the point. A pytester test runs it for real,
+# which is stronger evidence that it works than type-checking it here would be.
+exclude = ["src/stocktake/templates/"]
 
 [[tool.mypy.overrides]]
 # `packaging` is an optional import that may legitimately be absent (ADR 0001).
@@ -115,6 +120,9 @@ ignore_missing_imports = true
 minversion = "8.0"
 testpaths = ["tests"]
 addopts = "-q --strict-markers --strict-config"
+# StockTake checks its own dependencies through its own plugin, on every run of its own
+# suite. Eating the dog food is the point: if the plugin breaks, this suite notices first.
+stocktake = true
 markers = [
     "network: asks the real registries; skipped, never failed, when they cannot be reached",
 ]

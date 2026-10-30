@@ -101,9 +101,12 @@ Rules the layout follows:
 ```
 stocktake [--root PATH] [--format text|json] [--only all|outdated|vulnerable]
           [--config PATH] [--environment PATH] [--refresh] [--all-advisories] [--version]
+stocktake init [PATH] [--tests PATH] [--force]
 ```
 
-Planned (docs/ROADMAP.md): `--format sarif|summary` in M4, and the sub-commands `stocktake init` (write a test file and a starter `.stocktake.toml`) in M2 and `stocktake vendor PATH` (write the single-file copy) in M4.
+Planned (docs/ROADMAP.md): `--format sarif|summary` and `stocktake vendor PATH` (write the single-file copy) in M4.
+
+Inside a test suite the same rules reach the reader as pytest's own vocabulary rather than as a report: a **failure** carries the narrowed report as its message, a newer release is a **warning** in the summary, and an unreachable registry is a **skip** with its reason. That mapping is the whole of the plugin; the rules themselves are shared with this command (`stocktake.check`).
 
 The flag is `--config`, not `--policy`: the file holds the excludes and the enabled ecosystems as well as the policy, so naming it after one of its tables would be wrong.
 Defaults chosen so the bare command is the useful one: current directory, text, everything, cache honoured, worst five advisories per package. Every flag has a long form; short forms are not provided, because this is read in scripts more often than typed.

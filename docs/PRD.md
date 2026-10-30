@@ -97,7 +97,7 @@ The measure of success is boring: it stays switched on. A checker that fails the
 - Policy in `.stocktake.toml` with reason and expiry; overdue entries fail
 - Text and JSON reports; exit codes 0/1/2
 - `stocktake` CLI with `--only`, `--format`, `--root`, `--refresh`, `--all-advisories`
-- pytest plugin with the fail/warn/skip rules
+- pytest plugin with the fail/warn/skip rules, **off until a project asks for it** ([ADR 0007](adr/0007-the-pytest-plugin-is-opt-in.md))
 - Guard tests: missed-pin count, unread-manifest detection
 - Six-hour shared cache; offline means unknown
 

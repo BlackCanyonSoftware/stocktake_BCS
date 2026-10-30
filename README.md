@@ -22,7 +22,7 @@ They are good, and this is not trying to replace them. It exists because of the 
 | Sees `RUN pip install name==1.2.3` in a Dockerfile | no | **yes** |
 | Sees a binary fetched from a GitHub release | no | yes (newest tag only) |
 | Checks the version actually installed in your dev environment | no | yes |
-| Runs in your test suite, offline-tolerant | no | yes |
+| Runs in your test suite, offline-tolerant | no | yes — one line of config |
 | Fails your build for being behind | configurable, often yes | **never** — only unsafe findings fail |
 
 That last row is the design. A check that fails the build because a dependency is four months behind gets switched off within a week, and then it protects nothing.
@@ -136,25 +136,62 @@ stocktake --refresh                    # ignore the six-hour cache
 stocktake --root ../other-project      # check a different project
 stocktake --environment /path/to/venv  # resolve ranges against this environment
 stocktake --all-advisories             # every advisory, not the worst five
+stocktake init                         # write the check into this project's test suite
 ```
 
-`stocktake --help` is the full reference. `python -m stocktake` works too.
+`stocktake --help` and `stocktake init --help` are the full reference. `python -m stocktake` works too.
+
+## In your test suite
+
+This is the way it is meant to be used: the check runs with the rest of your tests, on whatever you are working on, and you find out about a vulnerable dependency on the day it is published rather than the day you next think to look.
+
+**Installing StockTake does not add anything to your suite.** You switch it on with one line in your pytest configuration:
+
+```toml
+[tool.pytest.ini_options]
+stocktake = true
+```
+
+Then `pytest` runs it with everything else:
+
+```text
+tests/test_the_projects_own_thing.py ..                                  [ 66%]
+stocktake_dependency_check PASSED                                        [100%]
+
+============================== warnings summary ===============================
+stocktake_dependency_check
+  DependencyUpdateAvailable: 1 dependencies have a newer release: click 8.1.7->8.5.0  (run `stocktake` for the full report)
+
+======================== 3 passed, 1 warning in 1.15s =========================
+```
+
+- **It fails** only on a vulnerable or withdrawn release, or a policy entry past its date.
+- **It warns**, in the summary, when something merely has a newer release. Your build stays green.
+- **It skips** when the registries cannot be reached, so a plane, an outage or a locked-down runner does not turn your build red. `STOCKTAKE_OFFLINE=1` forces that.
+- `--no-stocktake` skips it for one run; `--stocktake` switches it on for one run without editing anything; `-m "not stocktake"` deselects it like any other marked test.
+- Answers are cached for six hours, so running your suite repeatedly costs one set of requests a day.
+
+**Would rather own the test file?** `stocktake init` writes a four-line `tests/test_dependencies.py` and a commented `.stocktake.toml`, and overwrites nothing:
+
+```bash
+stocktake init
+```
+
+Both paths apply exactly the same rules — they share one function — so neither can drift from the other or from what `stocktake` prints on the command line.
 
 ## Using it from Python
 
 ```python
 from pathlib import Path
-from stocktake import Registries, evaluate, load_config, render_text, scan
+from stocktake.check import failure_text, run_check, skip_reason, update_warning
 
-root = Path(".")
-config = load_config(root)
-report = evaluate(scan(root, config), Registries(), config.policy)
+report = run_check(Path("."))
 
-print(render_text(report))
-assert not report.failed
+print(f"{len(report.findings)} checked, {report.counts['vulnerable']} vulnerable")
+assert failure_text(report) is None
 ```
 
-A pytest plugin that wraps this up as one test — warning on outdated, skipping when offline — is the next milestone. Until then the five lines above in a test file do the job.
+`run_check` does the lot: reads the config, finds the environment, scans, asks the registries and judges the answers. The lower-level pieces (`scan`, `evaluate`, `render_text`, `Registries`) are all exported from `stocktake` if you want to drive them yourself.
 
 ## Privacy and what it touches
 

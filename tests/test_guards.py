@@ -5,13 +5,10 @@ never registered, a manifest kind nobody taught it to read, a dependency of its 
 somebody adds something, which is the point.
 """
 
-import os
-import warnings
+import tomllib
 from pathlib import Path
 
-import pytest
-
-from stocktake import DependencyUpdateAvailable, Registries, evaluate, load_config, render_text, scan, unread_manifests
+from stocktake import load_config, scan, unread_manifests
 from stocktake.readers import READERS, groups
 
 from helpers import ROOT
@@ -46,47 +43,33 @@ def test_this_projects_own_dependencies_are_found_at_all():
 
 
 def test_the_core_imports_nothing_outside_the_standard_library():
-    """ADR 0001 is a promise to anyone installing this. A new third-party import in the core would break it silently."""
-    allowed = {"stocktake", "packaging"}  # packaging only ever inside a try/except, as an optional nicety
+    """ADR 0001 is a promise to anyone installing this. A new third-party import in the core would break it silently.
+
+    Two exceptions, both deliberate: `packaging`, which is only ever imported inside a try/except as an optional nicety, and `pytest` in the
+    pytest plugin, which is only ever imported under pytest. Anywhere else, an import of either is a bug.
+    """
+    allowed = {"stocktake", "packaging"}
+    only_in = {"pytest_plugin.py": {"pytest"}, "dependency_test_template.py": {"pytest"}}
     stdlib = set(__import__("sys").stdlib_module_names)
     offenders = {}
     for path in (ROOT / "src" / "stocktake").rglob("*.py"):
+        permitted = stdlib | allowed | only_in.get(path.name, set())
         for line in path.read_text(encoding="utf-8").splitlines():
             stripped = line.strip()
             if not stripped.startswith(("import ", "from ")):
                 continue
             root_module = stripped.split()[1].split(".")[0]
-            if root_module not in stdlib | allowed:
+            if root_module not in permitted:
                 offenders[str(path.relative_to(ROOT))] = root_module
     assert offenders == {}, f"the core must not depend on anything third-party: {offenders}"
 
 
-@pytest.mark.network
-def test_this_projects_own_dependencies_have_no_known_vulnerabilities():
-    """The live check, run against the real registries as part of the suite.
+def test_this_project_runs_its_own_check_through_its_own_plugin():
+    """The live check against the real registries is not written out here: `stocktake = true` in pyproject.toml makes the plugin add it.
 
-    Fails on a known vulnerability, a withdrawn release or an overdue policy entry. A newer release is a warning in the summary, never a
-    failure. Skipped, not failed, when the registries cannot be reached or STOCKTAKE_OFFLINE is set.
+    That is deliberate. StockTake's own suite is the plugin's first consumer, so a plugin that stops working breaks this suite before it
+    reaches anybody else's. This test only guards the arrangement, so that switching the plugin off cannot pass unnoticed.
     """
-    if os.environ.get("STOCKTAKE_OFFLINE"):
-        pytest.skip("STOCKTAKE_OFFLINE is set")
-
-    config = load_config(ROOT)
-    asking = Registries()
-    report = evaluate(scan(ROOT, config), asking, config.policy, unread=unread_manifests(ROOT, config))
-    asking.flush()
-
-    if report.offline:
-        pytest.skip(f"cannot reach the registries ({report.offline})")
-
-    outdated = [f for f in report.findings if f.status == "outdated"]
-    if outdated:
-        listed = ", ".join(f"{f.dep.name} {f.dep.version}->{f.latest}" for f in outdated[:12])
-        warnings.warn(
-            DependencyUpdateAvailable(
-                f"{len(outdated)} dependencies have a newer release: {listed}{' ...' if len(outdated) > 12 else ''}  (run `stocktake` for the full report)"
-            ),
-            stacklevel=1,
-        )
-
-    assert not report.failed, "\n" + render_text(report, "vulnerable")
+    settings = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert settings["tool"]["pytest"]["ini_options"].get("stocktake") is True, "this project should check itself through its own plugin"
+    assert settings["project"]["entry-points"]["pytest11"]["stocktake"] == "stocktake.pytest_plugin"

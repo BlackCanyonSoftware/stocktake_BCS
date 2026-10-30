@@ -61,6 +61,9 @@ src/stocktake/
   scan.py                walking the tree, honouring excludes, dispatching to readers, finding unread manifests,
                          and resolving which environment "installed" means (ADR 0006).
   evaluate.py            the judgement: Dep[] + registry answers -> Report. Pure given a Registries.
+  check.py               one whole run (config -> environment -> scan -> evaluate), and the fail/warn/skip rules.
+                         The command line and the pytest plugin both go through this, so they cannot disagree.
+  init_project.py        the files `stocktake init` writes into another project. The only part that creates anything.
   readers/
     base.py              Context, Reader, the reader() registration decorator, READERS, logical_lines
     pep508.py            what a Python requirement looks like, in one place
@@ -77,9 +80,13 @@ src/stocktake/
     pypi.py  github.py  osv.py      (npm.py: planned, M3)
   report/
     text.py  json.py     (sarif.py, summary: planned, M4)
-  pytest_plugin.py       (planned, M2) the drop-in check, entry point "stocktake"
+  pytest_plugin.py       the opt-in check as one pytest item, plus assert_dependencies_are_safe.
+                         The only module that imports pytest, and only ever imported under pytest (ADR 0007).
+  templates/
+    dependency_test_template.py   the test file `stocktake init` writes; package data, not imported
   vendor.py              (planned, M4) building the single-file copy
 tests/                   mirrors the above, plus test_guards.py for the checks on StockTake itself
+conftest.py              at the root, solely because `pytest_plugins = ["pytester"]` has to live there
 docs/
 ```
 
@@ -88,6 +95,8 @@ Boundaries that matter:
 - **Nothing outside `registries/` calls `urllib`.** Nothing outside `scan.py` and `readers/` reads a project file.
 - **`report/` is a pure function of a `Report`.** No module in `report/` re-reads a file or asks a registry anything.
 - **`cli.py` is the only module that knows about exit codes or prints.**
+- **`check.py` owns the rules, and owns them once.** What fails a build, what only warns, what cannot be judged at all. The CLI maps them to exit codes; the plugin maps them to fail/warn/skip. Neither works them out for itself, or the two would drift and a project's suite would start disagreeing with its own command line.
+- **`pytest_plugin.py` is the only module that imports pytest**, and it is only ever imported under pytest. A guard test enforces that.
 
 ### Adding an ecosystem
 A reader is a stateless function with a declared interest, registered by a decorator:
