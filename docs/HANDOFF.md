@@ -36,6 +36,15 @@ It is a generalisation of `modules/depcheck` in the author's `ai-suite` reposito
 - The vendored copy's equivalence guard is a focused comparison, not the whole suite run twice — the amendment on [ADR 0005](adr/0005-installed-package-plus-a-generated-single-file-copy.md)
 - Scope confirmed by the owner on 2026-10-29: Python + npm + GitHub Actions + container tags for v1; MIT licence; package plus vendor command; leave `ai-suite` alone.
 
+## The remote is four commits behind, and that blocks adoption
+`origin/main` is at `5088e40`, the **M1** commit. M2, M3, M4 and M5 are local only, which means the default branch has **no pytest plugin, no npm reader, no SARIF and no vendor command**. Consequences worth knowing before telling anyone how to install this:
+
+- `pip install stocktake` fails: nothing is published, by choice. The README says so plainly rather than offering a command that does not work.
+- `pip install git+https://github.com/BlackCanyonSoftware/stocktake_BCS` *succeeds* and hands back the M1 build, silently missing the headline features. The README's CI route uses it, so **that route is wrong until the branch is pushed**.
+- CI has still never run, and the code-scanning upload step added in M4 cannot be verified any other way.
+
+Installing from a clone works today and is what the README leads with.
+
 ## Work in progress
 None. M0 to M5 are complete; M6 has not been started.
 
@@ -105,6 +114,9 @@ These come from the original's first real run and from building M0. None should 
 - **Advice has to be tied to the ecosystem it is about.** `notes_about()` in `check.py` emits the Python-environment note only when a *PyPI* range went unresolved, and the npm note only when an npm one did. Before that, a pure Node project was told to pass `--environment`, which cannot help it. Six regression tests cover the combinations.
 - **A Dockerfile whose only install is `RUN pip install -r requirements.txt` correctly yields nothing.** The `-r` consumes the filename, no package is named on the line, and the `requirements.txt` is read on its own account. This looks like a miss and is not; do not "fix" it.
 - **`uv` is still not installed on this machine**, and nothing has been installed without asking. The repo is developed with `py -3.11 -m venv` plus `pip install -e`. The 3.13 environment used for the second test run lives in the session scratchpad, not the repo.
+- **pytest's config section name differs by file**, and the README has the table: `[tool.pytest.ini_options]` in `pyproject.toml`, `[pytest]` in `pytest.ini` and `tox.ini`, and **`[tool:pytest]`** in `setup.cfg` — where a plain `[pytest]` is an error pytest refuses outright. The README originally said `[pytest]` for all three; verified and corrected.
+- **The README is now the adoption instruction set**, for people and for AI assistants, with a section addressed to the latter. Every command and both code snippets in it were run against a scratch project; if you change the CLI, re-run that check rather than trusting the prose.
+- **Do not work in the owner's other repositories from this session.** Adoption in those projects belongs to their own sessions. Reading them to test StockTake is fine and is how three bugs were found; changing them is not.
 
 ## Projects to try it on (M5)
 The owner has about ten repositories available for this, and the list is the most valuable thing M5 can have. Known so far:
