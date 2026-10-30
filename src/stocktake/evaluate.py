@@ -66,7 +66,8 @@ def _unreachable(answers: Mapping[tuple[str, str], Answer]) -> str | None:
 def _judge(dep: Dep, answer: Answer, advisories: tuple[Advisory, ...], held: frozenset[str], hold_reason: str) -> Finding:
     """One dependency's finding. The whole decision table, in the order the questions have to be asked."""
     if dep.version is None:
-        return Finding(dep, "unpinned", "info", note=UNPINNED_NOTES.get(dep.role, UNPINNED_DEFAULT))
+        # The reader's own reason wins: it knows whether a version is missing because nothing pins one or because what pins it is a commit.
+        return Finding(dep, "unpinned", "info", note=dep.note or UNPINNED_NOTES.get(dep.role, UNPINNED_DEFAULT))
     if answer is None:
         return Finding(dep, "unknown", "info", note="not found on the registry")
     if isinstance(answer, str):
@@ -76,7 +77,7 @@ def _judge(dep: Dep, answer: Answer, advisories: tuple[Advisory, ...], held: fro
         return Finding(dep, "vulnerable", "fail", answer.latest, advisories=advisories, note=f"{len(advisories)} known {plural}")
     if dep.version in answer.withdrawn:
         return Finding(dep, "yanked", "fail", answer.latest, note="this release was withdrawn by its author")
-    if is_newer(answer.latest, dep.version):
+    if is_newer(answer.latest, dep.version, dep.ecosystem, moving=dep.moving):
         kind = update_kind(answer.latest, dep.version)
         if normalize(dep.name) in held:
             return Finding(

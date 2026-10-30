@@ -23,11 +23,24 @@ class DependencyUpdateAvailable(UserWarning):
 
 
 def normalize(name: str) -> str:
-    """A package name reduced to what identifies it, so names differing only in case or in `-`, `_` and `.` compare equal (PEP 503).
+    """A package name reduced to a comparison key, so names differing only in case or in `-`, `_` and `.` compare equal (PEP 503's rule).
 
-    This is PyPI's rule. npm names are case-sensitive, so when that reader arrives this grows an ecosystem argument.
+    This is StockTake's internal key — for matching a policy entry, and for keying advisories against the dependency they belong to. It is
+    deliberately the same rule for every ecosystem, because a policy entry does not say which ecosystem it means and somebody writing
+    `package = "Left-Pad"` should not have to care.
+
+    It is **not** what any registry is asked for. That is `registry_name`.
     """
     return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def registry_name(ecosystem: str, name: str) -> str:
+    """The name as that ecosystem's registry spells it.
+
+    PyPI normalises, and treats `Typing_Extensions` and `typing-extensions` as the same project. npm does not: names are case-sensitive, may
+    be scoped (`@babel/traverse`), and asking for the wrong spelling gets a 404 rather than the package.
+    """
+    return normalize(name) if ecosystem == "PyPI" else name
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +55,11 @@ class Dep:
     # Who declared it: runtime or dev dependency of the project, baked into an image, used by CI, or resolved by a lock file (which does not
     # record which group it belongs to).
     role: str = "runtime"  # runtime | dev | image | ci | locked
+    # Why there is no version to check, when the reader knows and the judge could not work it out — an action pinned to a commit SHA, say.
+    note: str = ""
+    # True when the "version" is a tag its publisher moves: a GitHub Actions `@v7`, or a Docker `:3.12`. Such a tag already tracks the newest
+    # release beginning with it, so only a change at the precision written down is an update — `v7` to `v8` is, `v7` to `v7.0.1` is not.
+    moving: bool = False
 
 
 @dataclass(frozen=True, slots=True)

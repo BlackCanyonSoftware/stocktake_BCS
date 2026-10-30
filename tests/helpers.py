@@ -24,6 +24,7 @@ class FakeNet:
     """Every registry, faked, described by what each one would answer.
 
     - `pypi`:    {name: (newest version, [versions whose every file is yanked])}
+    - `npm`:     {name: newest version}
     - `osv`:     {(name, version): [advisory id]}
     - `details`: {advisory id: the detail document OSV would return}
     - `github`:  {"owner/repo": "v1.2.3"}
@@ -35,8 +36,10 @@ class FakeNet:
         osv: dict[tuple[str, str], list[str]] | None = None,
         details: dict[str, dict] | None = None,
         github: dict[str, str] | None = None,
+        npm: dict[str, str] | None = None,
     ) -> None:
         self.pypi = pypi or {}
+        self.npm = npm or {}
         self.osv = osv or {}
         self.details = details or {}
         self.github = github or {}
@@ -58,6 +61,10 @@ class FakeNet:
             latest, withdrawn = self.pypi[name]
             releases = {latest: [{"yanked": False}], **{v: [{"yanked": True}] for v in withdrawn}}
             return {"info": {"version": latest}, "releases": releases}
+
+        if url.startswith("https://registry.npmjs.org/"):
+            name = url.removeprefix("https://registry.npmjs.org/").removesuffix("/latest")
+            return {"version": self.npm[name]} if name in self.npm else None
 
         if url == OSV.BATCH_URL:
             assert body is not None, "the OSV batch endpoint is a POST"

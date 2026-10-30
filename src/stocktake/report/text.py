@@ -50,7 +50,7 @@ def _vulnerable_row(finding: Finding, width: int, all_advisories: bool, top: int
     dep = finding.dep
     tally = ", ".join(f"{count} {label}" for label, count in severity_tally(finding.advisories))
     plural = "advisory" if len(finding.advisories) == 1 else "advisories"
-    target = fix_target(finding.advisories, dep.version or "0")
+    target = fix_target(finding.advisories, dep.version or "0", dep.ecosystem)
     fix = f"; upgrade to {target} or newer" if target else "; no fixed version named"
     # Two spaces after the version: "pillow 9.0.0 52 advisories" otherwise reads as though the version were "9.0.0 52".
     lines = [f"  {dep.source:<{width}} {dep.name} {dep.version}  {len(finding.advisories)} {plural} ({tally}){fix}"]

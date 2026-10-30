@@ -26,6 +26,17 @@ from stocktake._version import __version__
 
 TTL_SECONDS = 6 * 3600
 TIMEOUT_SECONDS = 20
+
+# One retry, for a connection that failed rather than a service that answered.
+#
+# This is not politeness theatre. Verifying the npm reader against a real project, two of three requests to api.github.com failed TLS
+# verification while every request to pypi.org, npmjs.org and osv.dev in the same run succeeded, and a later attempt to the same three URLs
+# worked. The tool behaved correctly — it reported those two as `unknown` with the reason, and never as clean — but "unknown" for a
+# dependency that is in fact fine is noise, and noise is what gets a checker switched off.
+#
+# A service that *answered* is never retried: a 404 is a real answer, and retrying a 429 makes the rate limiting worse.
+RETRY_ATTEMPTS = 2
+RETRY_DELAY_SECONDS = 0.5
 USER_AGENT = f"stocktake/{__version__} (+https://github.com/BlackCanyonSoftware/stocktake_BCS)"
 
 FetchFn = Callable[[str, dict[str, Any] | None], Any]
@@ -52,8 +63,11 @@ def cache_path() -> Path:
     return base / "stocktake" / "cache.json"
 
 
-def default_fetch(url: str, body: dict[str, Any] | None = None, timeout: int = TIMEOUT_SECONDS) -> Any:
-    """One request. A 404 is an answer ("no such package"); 403 and 429 are rate limiting; anything else that goes wrong is being offline.
+def default_fetch(url: str, body: dict[str, Any] | None = None, timeout: int = TIMEOUT_SECONDS, attempts: int = RETRY_ATTEMPTS) -> Any:
+    """One request, retried once if the connection itself failed.
+
+    A 404 is an answer ("no such package"); 403 and 429 are rate limiting; a connection that never got that far is being offline. Only the
+    last of those is worth trying again.
 
     The only thing sent is the URL, which carries a package name, and for OSV a body of names and versions. Nothing else, ever (NFR-1).
     """
@@ -66,17 +80,22 @@ def default_fetch(url: str, body: dict[str, Any] | None = None, timeout: int = T
         data = json.dumps(body).encode()
         headers["Content-Type"] = "application/json"
     request = urllib.request.Request(url, data=data, headers=headers)  # noqa: S310 - every URL here is a literal in this package
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return None
-        if exc.code in (403, 429):
-            raise RateLimited(f"{url} answered {exc.code}") from exc
-        raise OfflineError(f"{url} answered {exc.code}") from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise OfflineError(str(exc)) from exc
+
+    for attempt in range(1, max(attempts, 1) + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:  # a subclass of URLError, so it has to be caught first
+            if exc.code == 404:
+                return None
+            if exc.code in (403, 429):
+                raise RateLimited(f"{url} answered {exc.code}") from exc
+            raise OfflineError(f"{url} answered {exc.code}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            if attempt >= max(attempts, 1):
+                raise OfflineError(str(exc)) from exc
+            time.sleep(RETRY_DELAY_SECONDS)
+    raise OfflineError(f"{url} could not be reached")  # unreachable; the loop either returns or raises
 
 
 class Cache:

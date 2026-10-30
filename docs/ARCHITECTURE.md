@@ -71,13 +71,14 @@ src/stocktake/
     python_project.py    pyproject.toml and Pipfile — declared ranges, at the version actually installed
     python_requirements.py  requirements*.txt and constraints*.txt — a resolved set, so the pin wins
     python_locks.py      uv.lock, pdm.lock, poetry.lock, Pipfile.lock
-    npm.py               (planned, M3) package.json and lockfiles
-    workflows.py         (planned, M3) .github/workflows/*.yml  uses: owner/repo@ref; FROM image:tag
+    npm.py               package.json and package-lock.json, resolved against node_modules
+    workflows.py         .github/workflows/*.yml and action.yml — uses: owner/repo@ref
+    containers.py        (planned, M6) FROM image:tag and @sha256: digests
   registries/
     __init__.py          the wiring: the Registries facade, and the only place that knows which clients exist
     base.py              Versions, the Client and AdvisoryClient protocols, the Coordinate type
-    http.py              fetch with timeouts, the six-hour cache, OfflineError / RateLimited
-    pypi.py  github.py  osv.py      (npm.py: planned, M3)
+    http.py              fetch with timeouts and one retry, the six-hour cache, OfflineError / RateLimited
+    pypi.py  npm.py  github.py  osv.py
   report/
     text.py  json.py     (sarif.py, summary: planned, M4)
   pytest_plugin.py       the opt-in check as one pytest item, plus assert_dependencies_are_safe.
@@ -134,6 +135,8 @@ erDiagram
         string source "path:line"
         string spec "as written, e.g. >=8"
         string role "runtime | dev | image | ci | locked"
+        string note "why there is no version, when the reader knows"
+        bool moving "the version is a tag its publisher advances (ADR 0008)"
     }
     FINDING {
         string status "vulnerable|yanked|outdated|held|current|unpinned|unknown"
@@ -194,7 +197,7 @@ Concurrency is a fixed pool of eight lookups. Advisories go in one batched reque
 | Service | Asked | Sent | If it fails |
 |---|---|---|---|
 | pypi.org/pypi/{name}/json | newest release, which releases are yanked | the package name | that name becomes `unknown` |
-| registry.npmjs.org/{name} | newest version | the package name | that name becomes `unknown` |
+| registry.npmjs.org/{name}/latest | newest version (not the whole packument, which runs to megabytes) | the package name | that name becomes `unknown` |
 | api.github.com/repos/{repo}/releases/latest | newest release tag | owner/repo | `unknown`; 403/429 is rate limiting, not an outage |
 | api.osv.dev/v1/querybatch + /vulns/{id} | advisories against a version | name, version, ecosystem | advisories unknown for the run; never treated as clean |
 
@@ -203,7 +206,7 @@ Every answer is cached for six hours in `~/.cache/stocktake/cache.json`, shared 
 **If all lookups fail, the run is `offline`:** exit 2, the pytest test skips, and nothing is reported as clean. **If some fail**, those names are `unknown` and the rest of the run still counts. That distinction is the whole of NFR-5 and NFR-7.
 
 ## Cross-cutting concerns
-- **Errors.** Two exceptions cross the network boundary: `OfflineError` (could not reach it) and `RateLimited` (it asked us to slow down; that one answer is unknown). Nothing else is caught broadly. A malformed registry answer is a bug and should raise.
+- **Errors.** Two exceptions cross the network boundary: `OfflineError` (could not reach it) and `RateLimited` (it asked us to slow down; that one answer is unknown). Nothing else is caught broadly. A malformed registry answer is a bug and should raise. A connection that failed is retried once before becoming `OfflineError`; a service that *answered* never is, because a 404 is a real answer and retrying a 429 makes the rate limiting worse.
 - **Configuration.** One file, `.stocktake.toml` at the project root, holding ecosystems, excludes and policy. Nothing is configured by environment variable except `GITHUB_TOKEN`, `STOCKTAKE_CACHE` and `STOCKTAKE_OFFLINE` (for testing offline behaviour deliberately).
 - **Logging.** None. The report is the output; the exit code is the signal. A CLI tool that logs to stderr on a normal run is noise in a test suite.
 - **Caching.** Keyed by URL plus a hash of any request body, written atomically through a temp file and a rename, and a damaged cache file is ignored rather than fatal.

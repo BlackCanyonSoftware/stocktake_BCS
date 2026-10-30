@@ -172,8 +172,8 @@ def test_advisories_going_offline_makes_the_whole_run_incomplete(tmp_path):
 
 
 def test_an_ecosystem_with_no_client_is_unknown_and_says_why(tmp_path):
-    report = judged(tmp_path, [Dep("npm", "left-pad", "1.0.0", "package.json")], FakeNet())
-    assert by_name(report)["left-pad"].note == "no registry client for npm"
+    report = judged(tmp_path, [Dep("Hackage", "aeson", "2.2.0", "project.cabal")], FakeNet())
+    assert by_name(report)["aeson"].note == "no registry client for Hackage"
 
 
 def test_an_empty_project_is_reported_as_empty_and_not_as_offline(tmp_path):

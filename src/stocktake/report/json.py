@@ -23,7 +23,7 @@ def _finding(finding: Finding) -> dict[str, Any]:
         "update": finding.update,
         "note": finding.note,
         "advisories": [asdict(a) for a in finding.advisories],
-        "fix_target": fix_target(finding.advisories, finding.dep.version or "0") if finding.advisories else None,
+        "fix_target": fix_target(finding.advisories, finding.dep.version or "0", finding.dep.ecosystem) if finding.advisories else None,
     }
 
 

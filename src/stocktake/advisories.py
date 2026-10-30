@@ -7,12 +7,13 @@ printing none. Merging aliases, ranking by severity and naming a single upgrade 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 from stocktake.models import SEVERITY_RANK, Advisory
-from stocktake.versions import is_newer, release_tuple
+from stocktake.versions import is_newer, sort_key
 
 
-def merge_advisories(items: Sequence[Advisory]) -> list[Advisory]:
+def merge_advisories(items: Sequence[Advisory], ecosystem: str = "PyPI") -> list[Advisory]:
     """One entry per real problem, worst first.
 
     Advisories that share an id or an alias are the same problem reported twice (a GHSA and its PYSEC twin), so they become one entry keeping
@@ -38,24 +39,28 @@ def merge_advisories(items: Sequence[Advisory]) -> list[Advisory]:
                 severity=best.severity,
                 summary=best.summary or next((a.summary for a in members if a.summary), ""),
                 aliases=tuple(sorted(names - {best.id})),
-                fixed=tuple(sorted({f for a in members for f in a.fixed}, key=release_tuple)),
+                fixed=tuple(sorted({f for a in members for f in a.fixed}, key=lambda version: sort_key(version, ecosystem))),
             )
         )
     return sorted(merged, key=lambda a: (-a.rank, a.id))
 
 
-def fix_target(advisories: Sequence[Advisory], current: str) -> str | None:
+def fix_target(advisories: Sequence[Advisory], current: str, ecosystem: str = "PyPI") -> str | None:
     """The single version that clears every advisory that names a fix, or None when none of them name one.
 
     Per advisory, the smallest fix that is actually ahead of where we are, because a fix backported to a branch we are not on does not help us.
     Overall, the largest of those, because the upgrade has to satisfy all of them at once.
     """
+
+    def key(version: str) -> tuple[Any, ...]:
+        return sort_key(version, ecosystem)
+
     targets = []
     for advisory in advisories:
-        ahead = [f for f in advisory.fixed if is_newer(f, current)] or list(advisory.fixed)
+        ahead = [f for f in advisory.fixed if is_newer(f, current, ecosystem)] or list(advisory.fixed)
         if ahead:
-            targets.append(min(ahead, key=release_tuple))
-    return max(targets, key=release_tuple) if targets else None
+            targets.append(min(ahead, key=key))
+    return max(targets, key=key) if targets else None
 
 
 def severity_tally(advisories: Sequence[Advisory]) -> list[tuple[str, int]]:

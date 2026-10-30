@@ -13,10 +13,10 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from stocktake.advisories import merge_advisories
-from stocktake.models import Advisory, normalize
+from stocktake.models import Advisory, normalize, registry_name
 from stocktake.registries.base import Coordinate
 from stocktake.registries.http import Cache
-from stocktake.versions import release_tuple
+from stocktake.versions import sort_key
 
 
 class OSV:
@@ -24,7 +24,9 @@ class OSV:
     VULN_URL = "https://api.osv.dev/v1/vulns/{id}"
 
     # Our ecosystem names mapped to OSV's. An ecosystem absent from here is one OSV cannot answer for, and is skipped rather than guessed at.
-    ECOSYSTEMS: Mapping[str, str] = {"PyPI": "PyPI"}
+    # `GitHub` is deliberately absent: OSV has no key that identifies "the amd64 tarball from this repository's releases", and inventing one
+    # would mean claiming to have checked something we have not.
+    ECOSYSTEMS: Mapping[str, str] = {"PyPI": "PyPI", "npm": "npm"}
 
     def __init__(self, cache: Cache) -> None:
         self.cache = cache
@@ -35,7 +37,7 @@ class OSV:
             return {}
         body = {
             "queries": [
-                {"package": {"name": normalize(name), "ecosystem": self.ECOSYSTEMS[eco]}, "version": version}
+                {"package": {"name": registry_name(eco, name), "ecosystem": self.ECOSYSTEMS[eco]}, "version": version}
                 for eco, name, version in askable
             ]
         }
@@ -48,13 +50,13 @@ class OSV:
                 detail = self.cache.get(self.VULN_URL.format(id=vulnerability["id"])) or {}
                 if detail.get("withdrawn"):
                     continue  # the publisher retracted it; reporting it would be a false positive
-                advisories.append(self._advisory(str(vulnerability["id"]), detail, name))
+                advisories.append(self._advisory(str(vulnerability["id"]), detail, name, eco))
             if advisories:
-                found[eco, normalize(name), version] = tuple(merge_advisories(advisories))
+                found[eco, normalize(name), version] = tuple(merge_advisories(advisories, eco))
         return found
 
     @staticmethod
-    def _advisory(identifier: str, detail: dict[str, Any], name: str) -> Advisory:
+    def _advisory(identifier: str, detail: dict[str, Any], name: str, ecosystem: str) -> Advisory:
         """One advisory, keeping only the fixed versions that belong to the package we asked about.
 
         An advisory often covers several packages at once, so the fixed versions have to be filtered by name or the report ends up naming an
@@ -69,7 +71,7 @@ class OSV:
                 for event in span.get("events", [])
                 if "fixed" in event
             },
-            key=release_tuple,
+            key=lambda version: sort_key(version, ecosystem),
         )
         return Advisory(
             id=identifier,

@@ -103,8 +103,8 @@ The measure of success is boring: it stays switched on. A checker that fails the
 
 **Should have**
 - ~~Python lockfile readers: `uv.lock`, `poetry.lock`, `Pipfile.lock`~~ (done, M1, plus `pdm.lock` and `Pipfile`)
-- npm reader plus registry.npmjs.org and OSV `npm`
-- GitHub Actions `uses:` pins; Docker `FROM` tags and digests
+- ~~npm reader plus registry.npmjs.org and OSV `npm`~~ (done, M3; `yarn.lock` and `pnpm-lock.yaml` moved to M6, since both need YAML)
+- ~~GitHub Actions `uses:` pins~~ (done, M3); Docker `FROM` tags and digests (moved to M6: needs an authenticating registry client)
 - SARIF output; `--format summary`
 - `stocktake vendor` single-file copy with its guard tests
 - A GitHub Actions workflow in this repo running its own check
@@ -146,7 +146,7 @@ The measure of success is boring: it stays switched on. A checker that fails the
 - **R3 Registry rate limits.** GitHub allows 60 anonymous requests an hour. Mitigation: six-hour shared cache, concurrency cap, optional `GITHUB_TOKEN`, and one rate-limited answer becoming `unknown` without poisoning the rest of the run.
 - **R4 Scanner silently missing pins.** The most dangerous failure, because the report looks clean. Mitigation: guard tests that count pins independently of the scanner, and an unread-manifest check that fails on a manifest kind with no reader.
 - **R5 Reader sprawl.** Eight ecosystems is a lot of registry clients to keep working. Mitigation: a narrow reader interface, one guard test per reader, and ecosystems enabled per project so unused ones never run.
-- **R6 Version comparison differs by ecosystem.** SemVer, PEP 440 and bare integers do not sort alike. Mitigation: comparison is per-ecosystem behind one function, with the odd cases as test cases.
+- **R6 Version comparison differs by ecosystem.** SemVer, PEP 440 and bare integers do not sort alike. Mitigation: comparison is per-ecosystem behind one function, with the odd cases as test cases. A further wrinkle found in practice: some "versions" are tags their publisher advances, which are ranges wearing a version's clothes — see [ADR 0008](adr/0008-a-tag-its-publisher-moves-is-a-range.md).
 - **R7 A public tool invites expectations.** Issues, platform reports, feature requests. Mitigation: non-goals stated in the README, and no promise of support.
 
 ## Open questions

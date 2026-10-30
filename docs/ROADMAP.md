@@ -74,9 +74,7 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 
 **Verified.** 270 tests pass on 3.11 and 3.13; ruff and strict mypy clean. Both adoption paths were run end to end against a scratch project with a suite of its own and a live network: `stocktake init` then `pytest` gave `3 passed, 1 warning` with `click 8.1.7->8.5.0` named in the summary and exit 0; `STOCKTAKE_OFFLINE=1` gave `2 passed, 1 skipped` and exit 0; deleting the file and adding `stocktake = true` gave the same warning through the injected item. The plugin's collection, opt-in, opt-out and marker behaviour are covered by `pytester` tests that run a real pytest in a scratch project. CI still not verified (nothing pushed).
 
-## Now
-
-### M3 — npm, workflows and container tags · size M · `planned`
+### M3 — npm, workflows and container tags · size M · `done` (2026-10-30), except containers (moved to M6)
 **Goal.** The web projects and the CI pipelines get the same check.
 
 **Scope.** US-032, US-033
@@ -87,7 +85,17 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 
 **Exit criteria.** A real Node project reports npm findings that match `npm audit` on severity for the advisories both see, with the differences explained in the docs; a workflow pinned to an old action is reported with its newest release.
 
-## Later
+**What actually shipped**, where it differs from the plan above:
+- **`containers` is not done, and is moved to M6.** A Docker tag needs a registry client with an authentication dance (Docker Hub issues an anonymous bearer token before it will answer a manifest query), which is a different shape from the three read-only JSON APIs the tool uses now, and the first thing in StockTake that would need credential handling even for public data. npm and workflows together already deliver this milestone's goal — the web projects and the CI pipelines get the same check — so containers is better done properly later than squeezed in here.
+- **`yarn.lock` and `pnpm-lock.yaml` are not read, and are moved to M6.** Both need a YAML parser, and the core has no dependencies ([ADR 0001](adr/0001-python-with-a-standard-library-only-core.md)). Regex-scanning them was considered and rejected: it is exactly the "misses things silently" failure the guard tests exist to prevent, and a guard written with a second regex would not be independent of the first. A yarn or pnpm project is still checked, because its `package.json` is read and resolved against `node_modules`, which holds the resolved truth those files describe — and both files are reported as unread, so nobody is told a project is clean when part of it was skipped.
+- **A false positive found by running it on this repository, and the decision that came out of it: [ADR 0008](adr/0008-a-tag-its-publisher-moves-is-a-range.md).** The workflows reader's first run reported `actions/checkout 7->7.0.1` — an update that happens by itself, because GitHub advances the `v7` tag. `Dep.moving` now marks a tag its publisher advances, and such a tag is compared only to the precision it names. A real major gap is still reported, loudly.
+- **One retry on a failed connection**, also found by verification: two of three requests to `api.github.com` failed TLS verification while every request to the other three services in the same run succeeded, and a later attempt to the same URLs worked. The tool was correct — it reported them as `unknown` with the reason, never as clean — but `unknown` for a dependency that is fine is noise. A service that *answered* is never retried.
+- `Dep.note`, so a reader can say why there is no version to check. An action pinned to a commit SHA and an action tracking `@main` are both uncheckable for opposite reasons, and the report now says which.
+- Per-ecosystem version comparison went in as planned: `semver_key` follows the SemVer specification's precedence rules, including the two a naive comparison gets backwards (a release outranks its own prerelease; a numeric prerelease identifier ranks below an alphanumeric one).
+
+**Verified.** 342 tests pass on 3.11 and 3.13; ruff and strict mypy clean. Against a real 392-package Node project, StockTake and `npm audit` agreed exactly: the same two vulnerable packages (`electron`, `fast-uri`), the same severities, the same four advisories on `fast-uri`; StockTake also named the fix versions that `npm audit` only reports as available. The two differences that can occur in general are documented in the README. The workflows reader found `actions/checkout@v4 -> 7.0.1 (major)` and `actions/setup-python@v5 -> 7.1.0 (major)` in the author's brand-kit repository — three majors behind, and genuinely worth doing — while this repository's own `@v7` pins correctly report as current. A full uncached run of the 392-package project took 23 seconds. CI still not verified (nothing pushed).
+
+## Now
 
 ### M4 — SARIF, summary and the vendored copy · size M · `planned`
 **Scope.** US-004, US-013, US-050
@@ -104,7 +112,11 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 - Decide whether to publish to PyPI.
 
 ### M6 — More ecosystems · size L · `planned`
-Go (`go.mod`, proxy.golang.org, OSV `Go`), Rust (`Cargo.toml`/`Cargo.lock`, crates.io, OSV `crates.io`), pre-commit hook pins, apt packages named in Dockerfiles. Each is one reader, one registry client, one guard test.
+Each is one reader, one registry client, one guard test. The first two are carried over from M3 and are the ones a real project is most likely to want next:
+
+- **Containers:** `FROM image:tag` and `@sha256:` digests. The work that is not in the reader: Docker Hub issues an anonymous bearer token before it will answer a manifest query, so this is the first registry client needing an authentication step even for public data, and the first that cannot simply be a GET of a JSON document. A moving tag like `python:3.12` is handled by [ADR 0008](adr/0008-a-tag-its-publisher-moves-is-a-range.md), which already exists for this.
+- **`yarn.lock` and `pnpm-lock.yaml`:** both need YAML. The options are a vendored minimal parser for the subset these files use, or accepting a dependency and amending [ADR 0001](adr/0001-python-with-a-standard-library-only-core.md). Regex-scanning them is **not** an option: it is the "misses things silently" failure the guard tests exist to catch, and a guard written with a second regex would not be independent of the first.
+- Go (`go.mod`, proxy.golang.org, OSV `Go`), Rust (`Cargo.toml`/`Cargo.lock`, crates.io, OSV `crates.io`), pre-commit hook pins, apt packages named in Dockerfiles, conda `environment.yml`.
 
 ### M7 — `propose` mode · size M · `planned`
 Print the exact edit that would fix each finding, with a changelog or compare link. It never applies it. Needs a careful answer to "what is the right target version" per ecosystem; the advisory fix target already solves half of it.
@@ -118,6 +130,12 @@ Every `TODO` in the code gets a line here. There are none.
 - **Lock-file entries carry no line number**, only the file, because the TOML and JSON parsers do not report one. Findable by searching the text for the name, which is fragile; not worth it yet.
 - **`dist-info` directory names are trusted** for installed versions rather than the metadata inside them (ADR 0006). The documented layout, and what makes the lookup free.
 - **A project whose environment is in none of the usual places needs `--environment` passing once.** The brand-kit repository is this case. A config entry makes it permanent, but it has to be discovered first; the report's note is what makes that discoverable.
+
+From M3:
+- **Nothing reports a dependency as pinned too loosely.** `uses: actions/checkout@v7` is a moving tag, and a compromised tag is a real supply-chain risk that SHA pinning exists to address; the same goes for an npm `^1.2.3`. [ADR 0008](adr/0008-a-tag-its-publisher-moves-is-a-range.md) deliberately says nothing about it rather than conflating it with being out of date. The right shape is a separate opt-in finding, not a change to how `outdated` works.
+- **A commit-pinned action with no version comment cannot be compared.** It is reported with the reason and how to fix it. Resolving the SHA to a release would mean listing a repository's tags and matching SHAs — one or two extra requests per action against a 60-an-hour anonymous limit.
+- **An npm package declared in both `package.json` and the lock file is two findings.** Correct — fixing it means editing both — but it makes StockTake's headline count higher than `npm audit`'s. Documented in the README rather than changed.
+- **`node_modules` is read for every declared name, one small file at a time.** Fine for the hundreds a project declares; it would want batching if something ever asks about the whole tree.
 
 From M2:
 - **A project that runs `stocktake init` and also sets `stocktake = true` checks itself twice.** Harmless — the second run is served entirely from the six-hour cache — and there is a test recording it, but it would be friendlier for the plugin to notice the written file and stand down.

@@ -5,11 +5,14 @@ on the real clock.
 """
 
 import contextlib
+import json
+from urllib.error import HTTPError, URLError
 
 import pytest
 
 from stocktake.models import Advisory
-from stocktake.registries import Cache, GitHub, OfflineError, PyPI, RateLimited, Versions
+from stocktake.registries import Cache, GitHub, Npm, OfflineError, PyPI, RateLimited, Versions, default_fetch
+from stocktake.registries.http import RETRY_ATTEMPTS
 from stocktake.registries.osv import OSV
 
 from helpers import FakeNet, advisory_detail, registries
@@ -49,6 +52,40 @@ def test_the_name_is_normalised_before_it_is_asked_about(tmp_path):
     assert PyPI(cache(tmp_path, net)).latest("Typing_Extensions") is not None
 
 
+# ---------- npm ----------
+def test_npm_gives_the_newest_release(tmp_path):
+    net = FakeNet(npm={"koffi": "3.3.9"})
+    assert Npm(cache(tmp_path, net)).latest("koffi") == Versions(latest="3.3.9")
+
+
+def test_npm_is_asked_for_only_the_latest_rather_than_every_version_ever_published(tmp_path):
+    net = FakeNet(npm={"koffi": "3.3.9"})
+    Npm(cache(tmp_path, net)).latest("koffi")
+    assert net.calls == ["https://registry.npmjs.org/koffi/latest"]
+
+
+def test_a_scoped_name_keeps_its_slash_in_the_path(tmp_path):
+    net = FakeNet(npm={"@babel/traverse": "7.28.0"})
+    assert Npm(cache(tmp_path, net)).latest("@babel/traverse") == Versions(latest="7.28.0")
+    assert net.calls == ["https://registry.npmjs.org/@babel/traverse/latest"]
+
+
+def test_npm_names_are_taken_as_written_because_the_registry_is_case_sensitive(tmp_path):
+    net = FakeNet(npm={"Left-Pad": "1.3.0"})
+    assert Npm(cache(tmp_path, net)).latest("Left-Pad") is not None
+    assert Npm(cache(tmp_path, net)).latest("left-pad") is None, "a different spelling is a different package to npm"
+
+
+def test_a_package_npm_has_never_heard_of_is_none(tmp_path):
+    assert Npm(cache(tmp_path, FakeNet())).latest("nothere") is None
+
+
+def test_npm_reports_nothing_as_withdrawn_because_it_has_no_such_idea(tmp_path):
+    # It has deprecated versions, which are far looser and would be a false failure.
+    net = FakeNet(npm={"koffi": "3.3.9"})
+    assert Npm(cache(tmp_path, net)).latest("koffi").withdrawn == frozenset()
+
+
 # ---------- GitHub ----------
 def test_github_gives_the_newest_release_tag_without_its_leading_v(tmp_path):
     net = FakeNet(github={"mostlygeek/llama-swap": "v263"})
@@ -73,9 +110,28 @@ def test_osv_is_asked_once_for_everything_and_answers_per_coordinate(tmp_path):
 
 
 def test_an_ecosystem_osv_cannot_answer_for_is_not_asked_about(tmp_path):
+    # OSV has no key that identifies "the amd64 tarball from this repository's releases", so it is never asked.
     net = FakeNet()
     assert OSV(cache(tmp_path, net)).advisories([("GitHub", "o/r", "1.0")]) == {}
     assert net.calls == []
+
+
+def test_osv_answers_for_npm_too_and_is_asked_with_the_exact_name(tmp_path):
+    net = FakeNet(
+        osv={("@babel/traverse", "7.23.1"): ["GHSA-npm"]}, details={"GHSA-npm": advisory_detail("prototype pollution", "CRITICAL")}
+    )
+    found = OSV(cache(tmp_path, net)).advisories([("npm", "@babel/traverse", "7.23.1")])
+    assert [a.id for a in found[("npm", "@babel/traverse", "7.23.1")]] == ["GHSA-npm"]
+
+
+def test_a_pypi_name_is_normalised_for_osv_but_an_npm_name_is_not(tmp_path):
+    net = FakeNet(
+        osv={("typing-extensions", "4.0.0"): ["GHSA-py"], ("Left-Pad", "1.0.0"): ["GHSA-js"]},
+        details={"GHSA-py": advisory_detail(), "GHSA-js": advisory_detail()},
+    )
+    found = OSV(cache(tmp_path, net)).advisories([("PyPI", "Typing_Extensions", "4.0.0"), ("npm", "Left-Pad", "1.0.0")])
+    assert ("PyPI", "typing-extensions", "4.0.0") in found
+    assert ("npm", "left-pad", "1.0.0") in found, "the result is keyed by the comparison name"
 
 
 def test_a_withdrawn_advisory_is_not_reported(tmp_path):
@@ -208,14 +264,78 @@ def test_a_failed_request_is_not_remembered_as_an_answer(tmp_path):
     assert len(net.calls) == 2, "an exception must not be cached as though it were an answer"
 
 
+# ---------- the one retry ----------
+class FakeResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def read(self):
+        return json.dumps(self.payload).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+def urlopen_that(monkeypatch, *outcomes):
+    """Replace urlopen with one that produces each outcome in turn, and record how many times it was called."""
+    calls = []
+
+    def urlopen(request, timeout=None):
+        calls.append(getattr(request, "full_url", request))
+        outcome = outcomes[min(len(calls), len(outcomes)) - 1]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return FakeResponse(outcome)
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    monkeypatch.setattr("stocktake.registries.http.time.sleep", lambda _seconds: None)
+    return calls
+
+
+def test_a_connection_that_failed_is_tried_once_more(monkeypatch):
+    """The reason this exists: on a real run, two of three requests to one host failed TLS verification and a later attempt worked."""
+    calls = urlopen_that(monkeypatch, URLError("[SSL: CERTIFICATE_VERIFY_FAILED]"), {"version": "1.2.3"})
+    assert default_fetch("https://registry.npmjs.org/x/latest") == {"version": "1.2.3"}
+    assert len(calls) == 2
+
+
+def test_a_connection_that_keeps_failing_is_reported_as_offline(monkeypatch):
+    calls = urlopen_that(monkeypatch, URLError("no route to host"))
+    with pytest.raises(OfflineError, match="no route"):
+        default_fetch("https://pypi.org/pypi/x/json")
+    assert len(calls) == RETRY_ATTEMPTS, "tried, retried, then gave up rather than hammering"
+
+
+def test_a_service_that_answered_is_never_retried(monkeypatch):
+    """A 404 is an answer, and retrying a 429 would make the rate limiting worse."""
+    missing = urlopen_that(monkeypatch, HTTPError("https://pypi.org/pypi/x/json", 404, "Not Found", {}, None))
+    assert default_fetch("https://pypi.org/pypi/x/json") is None
+    assert len(missing) == 1
+
+    limited = urlopen_that(monkeypatch, HTTPError("https://api.github.com/x", 429, "Too Many", {}, None))
+    with pytest.raises(RateLimited):
+        default_fetch("https://api.github.com/x")
+    assert len(limited) == 1
+
+
+def test_retrying_can_be_switched_off_for_one_call(monkeypatch):
+    calls = urlopen_that(monkeypatch, URLError("down"))
+    with pytest.raises(OfflineError):
+        default_fetch("https://pypi.org/pypi/x/json", attempts=1)
+    assert len(calls) == 1
+
+
 # ---------- the facade ----------
 def test_the_facade_routes_by_ecosystem_and_says_which_it_knows(tmp_path):
     net = FakeNet(pypi={"a": ("1.0", [])}, github={"o/r": "v3"})
     asking = registries(tmp_path, net)
-    assert set(asking.ecosystems) == {"PyPI", "GitHub"}
+    assert set(asking.ecosystems) == {"PyPI", "npm", "GitHub"}
     assert asking.latest("PyPI", "a") == Versions(latest="1.0")
     assert asking.latest("GitHub", "o/r") == Versions(latest="3")
 
 
 def test_an_ecosystem_with_no_client_answers_none_rather_than_raising(tmp_path):
-    assert registries(tmp_path, FakeNet()).latest("npm", "left-pad") is None
+    assert registries(tmp_path, FakeNet()).latest("Hackage", "aeson") is None

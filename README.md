@@ -22,6 +22,7 @@ They are good, and this is not trying to replace them. It exists because of the 
 | Sees `RUN pip install name==1.2.3` in a Dockerfile | no | **yes** |
 | Sees a binary fetched from a GitHub release | no | yes (newest tag only) |
 | Checks the version actually installed in your dev environment | no | yes |
+| Checks your GitHub Actions pins | yes | yes |
 | Runs in your test suite, offline-tolerant | no | yes — one line of config |
 | Fails your build for being behind | configurable, often yes | **never** — only unsafe findings fail |
 
@@ -37,18 +38,36 @@ That last row is the design. A check that fails the build because a dependency i
 - `Pipfile`: `packages` and `dev-packages`
 - unpinned installs, reported as unpinned rather than skipped
 
+**JavaScript** (the `npm` ecosystem)
+- `package.json`: `dependencies`, `devDependencies`, `optionalDependencies`, `peerDependencies`, past the values that are not registry versions at all (`file:`, `git+`, `workspace:`, `npm:` aliases, `owner/repo` shorthand)
+- `package-lock.json`, both the modern flat layout and the old nested one, skipping the project itself, its workspaces and its links
+- ranges resolved against what is actually in `node_modules`, including dependencies hoisted to the top of a workspace
+
+**CI** (the `workflows` ecosystem)
+- `uses: owner/repo@ref` in `.github/workflows/*.yml` and in `action.yml` definitions, including reusable workflows
+- a full version tag is a pin; `@v7` is a **moving tag**, so only a major change counts as an update ([ADR 0008](docs/adr/0008-a-tag-its-publisher-moves-is-a-range.md)); a commit SHA takes its version from the conventional `# v4.1.1` comment beside it, and says so when there isn't one
+
 **Binaries** (the `binaries` ecosystem)
 - GitHub release downloads in Dockerfiles, resolving `${VERSION}` against the nearest earlier assignment, compared with the newest release tag
 
-It asks [PyPI](https://pypi.org) for the newest release and for withdrawn ones, the GitHub releases API for the newest tag, and [OSV](https://osv.dev) for advisories against the exact version in use.
+It asks [PyPI](https://pypi.org) for the newest release and for withdrawn ones, [npm](https://registry.npmjs.org) and the GitHub releases API for the newest version, and [OSV](https://osv.dev) for advisories against the exact version in use.
+
+### Checked against `npm audit`
+
+On a real 392-package project, StockTake and `npm audit` agreed exactly: the same two vulnerable packages, the same severities, the same four advisories on one of them. StockTake also named the versions that fix them (`44.9.1`, `3.1.9`), which `npm audit` only reports as "a fix is available".
+
+Two differences worth knowing in general:
+
+- **StockTake counts findings; `npm audit` counts packages.** A package declared in both `package.json` and `package-lock.json` is two findings, at two source locations, because fixing it means editing both.
+- **`npm audit` also reports packages affected only *through* a dependency.** StockTake reports the vulnerable package itself, with the advisory against it.
 
 ### Pins, ranges, and which version gets checked
-- **A file that pins a version is checked at its pin** — a Dockerfile `==`, a lock file, a `requirements.txt` line with `==`. That is what will be installed.
-- **A file that declares a range** — `pyproject.toml`, `Pipfile`, `requirements.txt` with `>=` — says nothing about what is running, so it is checked at the version **actually installed in the project's environment**.
+- **A file that pins a version is checked at its pin** — a Dockerfile `==`, a lock file, a `requirements.txt` line with `==`, a bare `1.2.3` in `package.json`. That is what will be installed.
+- **A file that declares a range** — `pyproject.toml`, `Pipfile`, `requirements.txt` with `>=`, `package.json` with `^1.2.3` — says nothing about what is running, so it is checked at the version **actually installed**: the project's Python environment, or its `node_modules`.
 
-StockTake looks for that environment in this order: one you name with `--environment PATH` (or `environment` in the config), then the project's own `.venv` or `venv`, then the environment active in your shell when you are checking the current directory. If it cannot find one, it says so and reports those dependencies as unpinned — it will not resolve them against some *other* environment, such as its own ([ADR 0006](docs/adr/0006-which-environment-an-installed-version-comes-from.md)).
+StockTake looks for the Python environment in this order: one you name with `--environment PATH` (or `environment` in the config), then the project's own `.venv` or `venv`, then the environment active in your shell when you are checking the current directory. If it cannot find one, it says so and reports those dependencies as unpinned — it will not resolve them against some *other* environment, such as its own ([ADR 0006](docs/adr/0006-which-environment-an-installed-version-comes-from.md)).
 
-**Not read yet:** npm, GitHub Actions pins, container base images, Go, Rust, conda, pre-commit hooks. These are coming (see [docs/ROADMAP.md](docs/ROADMAP.md)) — and until a reader exists, a manifest of that kind is reported as **unread** rather than silently ignored, so you are never shown a clean report that quietly skipped half your project.
+**Not read yet:** `yarn.lock` and `pnpm-lock.yaml` (both need a YAML parser, and the core has no dependencies — but a yarn or pnpm project is still checked through its `package.json` and `node_modules`), container base images, Go, Rust, conda, pre-commit hooks. See [docs/ROADMAP.md](docs/ROADMAP.md) — and until a reader exists, a manifest of that kind is reported as **unread** rather than silently ignored, so you are never shown a clean report that quietly skipped half your project.
 
 ## What it does with what it finds
 
@@ -104,7 +123,8 @@ Put the decision in `.stocktake.toml` at the project root. Every entry needs a r
 
 ```toml
 # .stocktake.toml
-ecosystems = ["python"]          # which readers to run; default: all of them
+ecosystems = ["python", "npm"]   # which readers to run; default: all of them
+                                 # (python, npm, workflows, binaries)
 exclude = ["vendor", "tests/fixtures"]
 accept_unread = ["go.mod"]       # "I know you cannot read this yet": stops the notice, stays in the JSON report
 environment = "tools/env"        # where this project's Python environment is, if not ./.venv

@@ -23,7 +23,7 @@ Option A, with `pyproject.toml`'s `[tool.stocktake]` accepted as a fallback for 
 
 ```toml
 # .stocktake.toml
-ecosystems = ["python", "binaries"]         # which readers to run; default: all of them
+ecosystems = ["python", "npm", "workflows", "binaries"]   # which readers to run; default: all
 exclude = ["vendor", "tests/fixtures"]      # added to the built-in defaults, never replacing them
 accept_unread = ["go.mod"]                  # manifests this project knows cannot be read yet
 environment = "tools/env"                   # where its Python environment is, if not ./.venv (ADR 0006)

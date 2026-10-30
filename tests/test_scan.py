@@ -87,7 +87,7 @@ def test_manifests_of_a_kind_no_reader_understands_are_named_rather_than_ignored
     (tmp_path / "node_modules" / "go.mod").write_text("x", encoding="utf-8")
     (tmp_path / "go.mod").write_text("module x", encoding="utf-8")
 
-    assert unread_manifests(tmp_path).reported == ("a/package.json", "go.mod")
+    assert unread_manifests(tmp_path).reported == ("go.mod",)
 
 
 def test_writing_a_reader_takes_a_manifest_off_the_unread_list_by_itself(tmp_path):

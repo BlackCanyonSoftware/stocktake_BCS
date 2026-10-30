@@ -27,7 +27,7 @@ STARTER_CONFIG = """# StockTake's configuration for this project. Every key is o
 # https://github.com/BlackCanyonSoftware/stocktake_BCS
 
 # Which readers to run. Leave this out and they all run.
-# ecosystems = ["python", "binaries"]
+# ecosystems = ["python", "npm", "workflows", "binaries"]
 
 # Folders and files to skip, added to the built-in defaults (.git, .venv, node_modules, ...).
 # exclude = ["vendor", "tests/fixtures"]
