@@ -38,7 +38,13 @@ py -3.11 -m venv .venv                                   # python3.11 -m venv on
 
 Requires **Python 3.11 or later** and nothing else. The core has no dependencies at all and never will — a tool whose job is watching your supply chain is a poor advertisement for itself if adopting it widens that supply chain. (`packaging` is used for version comparison when it happens to be importable, with a built-in fallback when it is not.)
 
-**Installing from git** (`pip install git+https://github.com/BlackCanyonSoftware/stocktake_BCS`) works, but check what is actually on the default branch first: as of this writing the branch is several commits behind the local work, and an install from it would be missing the pytest plugin and the npm reader entirely.
+**Installing from git** works and is what the CI route below uses:
+
+```bash
+pip install git+https://github.com/BlackCanyonSoftware/stocktake_BCS
+```
+
+Verified in a clean environment on 2026-10-30 to give the complete tool — all four ecosystems, the pytest plugin, SARIF and the vendor command. It tracks the default branch, so it is as current as that branch is.
 
 ---
 

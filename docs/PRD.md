@@ -107,7 +107,7 @@ The measure of success is boring: it stays switched on. A checker that fails the
 - ~~GitHub Actions `uses:` pins~~ (done, M3); Docker `FROM` tags and digests (moved to M6: needs an authenticating registry client)
 - ~~SARIF output; `--format summary`~~ (done, M4; the SARIF is validated against the published schema in the test suite)
 - ~~`stocktake vendor` single-file copy with its guard tests~~ (done, M4)
-- ~~A GitHub Actions workflow in this repo running its own check~~ (done, M0; it uploads the SARIF to code scanning as of M4, unverified until pushed)
+- ~~A GitHub Actions workflow in this repo running its own check~~ (done, M0; it uploads the SARIF to code scanning as of M4, and GitHub accepted the upload on 2026-10-30)
 
 **Could have**
 - Go (`go.mod`, proxy.golang.org, OSV `Go`) and Rust (`Cargo.toml`/`Cargo.lock`, crates.io, OSV `crates.io`)

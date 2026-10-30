@@ -9,7 +9,7 @@ It reads **four ecosystems**: `python` (seven manifest kinds), `npm` (`package.j
 
 **It checks itself through its own plugin.** `stocktake = true` is in this repository's `pyproject.toml`, so every `pytest` run here exercises the thing other projects will use. If the plugin breaks, this suite notices first.
 
-Commits are local only. Nothing has been pushed; CI has therefore never run and is **not verified**.
+Pushed through `1b01058`, and CI passes on Windows and Ubuntu across Python 3.11 and 3.13. See "Pushed, and CI is verified" below for what that settled. One commit after it is local, waiting to be pushed.
 
 ```bash
 py -3.11 -m venv .venv
@@ -36,23 +36,23 @@ It is a generalisation of `modules/depcheck` in the author's `ai-suite` reposito
 - The vendored copy's equivalence guard is a focused comparison, not the whole suite run twice — the amendment on [ADR 0005](adr/0005-installed-package-plus-a-generated-single-file-copy.md)
 - Scope confirmed by the owner on 2026-10-29: Python + npm + GitHub Actions + container tags for v1; MIT licence; package plus vendor command; leave `ai-suite` alone.
 
-## The remote is four commits behind, and that blocks adoption
-`origin/main` is at `5088e40`, the **M1** commit. M2, M3, M4 and M5 are local only, which means the default branch has **no pytest plugin, no npm reader, no SARIF and no vendor command**. Consequences worth knowing before telling anyone how to install this:
+## Pushed, and CI is verified
+The owner pushed through `1b01058` on 2026-10-30, and everything that could not be checked before now has been:
 
-- `pip install stocktake` fails: nothing is published, by choice. The README says so plainly rather than offering a command that does not work.
-- `pip install git+https://github.com/BlackCanyonSoftware/stocktake_BCS` *succeeds* and hands back the M1 build, silently missing the headline features. The README's CI route uses it, so **that route is wrong until the branch is pushed**.
-- CI has still never run, and the code-scanning upload step added in M4 cannot be verified any other way.
+- **CI passes on all four matrix jobs** — Windows and Ubuntu, Python 3.11 and 3.13. Linux had never been exercised before this.
+- **GitHub accepted the SARIF.** The code-scanning upload job succeeded and the analysis is recorded against the repository (tool `StockTake`, category `stocktake`). That is the strongest validation of the format available: not a schema validator agreeing, but the consumer it exists for ingesting it.
+- **`pip install git+https://github.com/BlackCanyonSoftware/stocktake_BCS` works and gives the full build** — all four ecosystems, SARIF, the plugin, the vendor command — verified in a clean 3.13 environment. The README's CI route is therefore correct now; it was not before the push.
+- `pip install stocktake` still fails, because nothing is published. That is a decision, and the README says so.
 
-Installing from a clone works today and is what the README leads with.
+**One thing that first run showed:** the code-scanning job installed `-e .` without the dev extra, so this project's own dev dependencies had nothing to resolve against and arrived in the security tab as four `unpinned` notes about its own tooling — correct, and useless. The job now installs `.[dev]`. Four open alerts from that first run will be superseded by the next one.
 
 ## Work in progress
 None. M0 to M5 are complete; M6 has not been started.
 
 ## Next steps
 1. **Two decisions the owner has to make**, both recorded in [ROADMAP.md](ROADMAP.md) under M5 and in the PRD's open questions: whether to publish to PyPI (metadata is ready, the name was free on 2026-10-30), and whether StockTake gets its own brand-kit entry or borrows the company mark. Neither is a coding task; the second one's work lives in the brand repository.
-2. **Switch the check on in the projects it was run against.** They have been *checked* but have not *adopted* it — nothing was changed in any of them. One line (`stocktake = true`) or one command (`stocktake init`) each.
-3. **Push, so CI is verified for the first time.** It has never run. The code-scanning upload step in particular cannot be verified any other way.
-4. **Milestone 6** when there is appetite: container tags and the YAML lock files, both carried over from M3 with reasons.
+2. **Adoption in the owner's other projects belongs to those projects' own sessions**, not to this one. They have been *read* — which is how three bugs were found — and nothing in any of them has been changed. The findings for each are listed further down, so a session working in one of them can start from a concrete list.
+3. **Milestone 6** when there is appetite: container tags and the YAML lock files, both carried over from M3 with reasons.
 
 **Known findings in the author's own repositories. Nothing was changed in any of them, and none of this has been acted on.**
 - `Brand Logos`: installed Pillow 11.2.1 has 58 advisories (5 critical), fonttools 4.58.0 has 1. Both declared as ranges, so the pins are not wrong — the installed versions are old. Its CI pins `actions/checkout@v4` and `actions/setup-python@v5`, three majors behind. Needs `--environment` (it installs into the global Python).
