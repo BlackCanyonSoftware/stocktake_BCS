@@ -45,35 +45,39 @@ flowchart LR
 The one rule that keeps this honest: **`evaluate()` takes a registry object and never constructs one.** Tests pass a fake; the CLI passes the real one.
 
 ## Folder structure and module boundaries
+Modules marked *(planned)* do not exist yet; the milestone that adds them is in [ROADMAP.md](ROADMAP.md).
+
 ```
 src/stocktake/
   __init__.py            public API: scan, evaluate, Report, Finding, Dep, __version__
   __main__.py            python -m stocktake
-  cli.py                 argparse, sub-commands, exit codes. The only module that calls sys.exit.
-  models.py              Dep, Finding, Report, Advisory. Frozen dataclasses, no behaviour beyond derived properties.
-  versions.py            comparison and update size, per ecosystem. Pure.
-  config.py              .stocktake.toml: ecosystems, excludes, policy, cache settings. Pure given text.
-  policy.py              applying and validating policy. Pure.
+  _version.py            the one place the version is written; pyproject reads it from here
+  cli.py                 argparse, exit codes. The only module that prints or decides an exit code.
+  models.py              Dep, Advisory, Finding, Report, normalize(). Frozen dataclasses, no behaviour beyond derived properties.
+  versions.py            comparison and update size. Pure.
+  advisories.py          merging aliased advisories, ranking them, naming the one version that clears them all. Pure.
+  config.py              .stocktake.toml / [tool.stocktake]: excludes and policy (ecosystems and cache: planned, M1). Pure given text.
+  policy.py              applying and validating policy, including expiry. Pure.
   scan.py                walking the tree, honouring excludes, dispatching to readers, finding unread manifests.
-  evaluate.py            the judgement: Dep[] + registry answers -> Report. Pure given a registry.
+  evaluate.py            the judgement: Dep[] + registry answers -> Report. Pure given a Registries.
   readers/
-    base.py              the Reader protocol and the registry of readers
-    dockerfile.py        pip/uv/pipx pins, FROM tags, GitHub release downloads
-    python_project.py    pyproject.toml, requirements*.txt
-    python_locks.py      uv.lock, poetry.lock, Pipfile.lock
-    npm.py               package.json, package-lock.json, pnpm-lock.yaml, yarn.lock
-    workflows.py         .github/workflows/*.yml  uses: owner/repo@ref
+    base.py              Context, Reader, the reader() registration decorator, READERS
+    pep508.py            what a Python requirement looks like, in one place
+    dockerfile.py        pip/uv/pipx pins; GitHub release downloads
+    python_project.py    pyproject.toml, at the version actually installed
+    python_locks.py      (planned, M1) requirements*.txt, uv.lock, poetry.lock, Pipfile.lock
+    npm.py               (planned, M3) package.json and lockfiles
+    workflows.py         (planned, M3) .github/workflows/*.yml  uses: owner/repo@ref; FROM image:tag
   registries/
-    base.py              the Registry protocol: latest(), advisories()
+    __init__.py          the wiring: the Registries facade, and the only place that knows which clients exist
+    base.py              Versions, the Client and AdvisoryClient protocols, the Coordinate type
     http.py              fetch with timeouts, the six-hour cache, OfflineError / RateLimited
-    pypi.py  npm.py  github.py  osv.py
+    pypi.py  github.py  osv.py      (npm.py: planned, M3)
   report/
-    text.py  json.py  sarif.py  summary.py
-  pytest_plugin.py       the drop-in check, entry point "stocktake"
-  vendor.py              building the single-file copy
-  templates/
-    test_dependencies.py the copy-in test file `stocktake init` writes
-tests/                   mirrors the above; one guard-test module per reader
+    text.py  json.py     (sarif.py, summary: planned, M4)
+  pytest_plugin.py       (planned, M2) the drop-in check, entry point "stocktake"
+  vendor.py              (planned, M4) building the single-file copy
+tests/                   mirrors the above, plus test_guards.py for the checks on StockTake itself
 docs/
 ```
 
@@ -84,17 +88,23 @@ Boundaries that matter:
 - **`cli.py` is the only module that knows about exit codes or prints.**
 
 ### Adding an ecosystem
-A reader is a function with a declared interest and no state:
+A reader is a stateless function with a declared interest, registered by a decorator:
 
 ```python
-# readers/base.py
-class Reader(Protocol):
-    name: str                      # "python", "npm", "workflows", "containers"
-    def interested(self, path: Path) -> bool: ...
-    def read(self, path: Path, text: str, ctx: Context) -> Iterable[Dep]: ...
+# readers/dockerfile.py
+@reader("python", is_dockerfile)
+def read_pip_pins(path: Path, text: str, context: Context) -> Iterable[Dep]:
+    """Python packages installed by a RUN line in a Dockerfile."""
+    for number, line in _run_lines(text):
+        for name, version, spec in pip_requirements(line):
+            yield Dep("PyPI", name, version, context.source(path, number), spec, "image")
 ```
 
-`Context` carries the project root and an `installed(name)` callable, so a reader can report the version actually present in the environment without importing `importlib.metadata` itself (and so tests can fake it). Adding Go means one file in `readers/`, one in `registries/`, one line in each registry of implementations, and a guard test. Nothing else changes.
+The first argument to `reader()` is the **group**: the name a project enables in its config, so `ecosystems = ["python"]` means the npm reader never runs and the npm registry is never asked anything. Two readers may share a group — the Dockerfile pip reader and the `pyproject.toml` reader are both `python`.
+
+`Context` carries the project root and an `installed(name)` callable, so a reader can report the version actually present in the environment without importing `importlib.metadata` itself — which is also what lets a test pass a dictionary. `context.source(path, line)` is how a finding names where it came from.
+
+Adding Go means one module in `readers/`, one in `registries/`, an import line in each package's `__init__.py`, and a guard test. Nothing existing changes, and a guard test fails if a reader module is written but never imported, so one cannot be added and silently never run.
 
 ## Data model
 ```mermaid

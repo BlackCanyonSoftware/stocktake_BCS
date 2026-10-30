@@ -30,9 +30,9 @@ Order is fixed and is the design: what must be fixed is first, what is merely in
 |---|---|
 | 0 | nothing unsafe. Outdated dependencies do not change this. |
 | 1 | a vulnerable or withdrawn release, or a policy entry past its date. |
-| 2 | the registries could not be reached. Not a judgement about the project. |
+| 2 | the check could not be completed: the registries could not be reached, or the configuration could not be read. Not a judgement about the project. |
 
-Three codes, each with one meaning. A caller can branch on them without parsing output.
+Three codes, each with one meaning. A caller can branch on them without parsing output. Code 2 covers both ways of not knowing, because the useful distinction for a caller is "the check reached a verdict" versus "it did not" — and a config file that cannot be parsed must never quietly fall back to defaults, which would mean the project's policy silently stopped applying.
 
 ### Update sizes
 `major`, `minor`, `patch`, from the first position where the versions differ. Named rather than numbered because the useful question is "how scared should I be of this bump".
@@ -59,23 +59,25 @@ Every one of these is a state the report must handle, and each has a test:
 - **`summary`** — one line, for a status bar or a CI step name. (M4)
 
 ### The text layout
+From a real run, abridged:
+
 ```
-Dependency check 2026-10-29: 71 checked, 4 vulnerable, 0 withdrawn, 13 outdated, 5 unpinned
+Dependency check 2026-10-30: 5 checked, 2 vulnerable, 0 withdrawn, 1 outdated, 1 unpinned
 
 POLICY: hold_back: webauthn was accepted until 2026-10-01 and is due for a decision again (3.x is a major release)
 
 VULNERABLE (fix these)
-  docker/dev/Dockerfile:12     pillow 12.3.0  41 advisories (5 critical, 36 moderate); upgrade to 13.0.0 or newer
-      GHSA-xxxx-xxxx-xxxx CRITICAL: Buffer overflow in the ICO decoder
-      ... and 36 more (stocktake --only vulnerable --all-advisories)
+  Dockerfile:3    pillow 9.0.0  52 advisories (6 critical, 32 high, 12 moderate, 2 unrated); upgrade to 13.0.0 or newer
+      GHSA-332p-7hrc-92wf CRITICAL: Pillow: Heap buffer overflow in _tiffWriteProc when saving TIFF to BytesIO
+      ... and 47 more (stocktake --only vulnerable --all-advisories)
 
 OUTDATED
-  pyproject.toml               pytest 8.3.1 -> 8.4.2 (minor)
+  Dockerfile:9    mostlygeek/llama-swap 262 -> 268 (major)
 
 UNPINNED
-  docker/dev/Dockerfile:6      ruff (none)  no version is pinned: whatever is newest when the image is built
+  Dockerfile:3    ruff (none)  no version is pinned: whatever is newest when the image is built
 
-CURRENT: 48 up to date
+CURRENT: 1 up to date
 ```
 
 Rules the layout follows:
@@ -96,11 +98,13 @@ Rules the layout follows:
 
 ## CLI shape
 ```
-stocktake [--root PATH] [--format text|json|sarif|summary] [--only all|outdated|vulnerable]
-          [--policy PATH] [--refresh] [--all-advisories]
-stocktake init [PATH]      write a test file and a starter .stocktake.toml
-stocktake vendor PATH      write the single-file copy
+stocktake [--root PATH] [--format text|json] [--only all|outdated|vulnerable]
+          [--config PATH] [--refresh] [--all-advisories] [--version]
 ```
+
+Planned (docs/ROADMAP.md): `--format sarif|summary` in M4, and the sub-commands `stocktake init` (write a test file and a starter `.stocktake.toml`) in M2 and `stocktake vendor PATH` (write the single-file copy) in M4.
+
+The flag is `--config`, not `--policy`: the file holds the excludes and the enabled ecosystems as well as the policy, so naming it after one of its tables would be wrong.
 Defaults chosen so the bare command is the useful one: current directory, text, everything, cache honoured, worst five advisories per package. Every flag has a long form; short forms are not provided, because this is read in scripts more often than typed.
 
 `--help` is the documentation most people will read, so each flag's help text says what it is for, not what it is.

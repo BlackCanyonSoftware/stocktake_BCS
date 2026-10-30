@@ -4,7 +4,7 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 
 ## Now
 
-### M0 — Walking skeleton: a Python project is checked, end to end · size M · `planned`
+### M0 — Walking skeleton: a Python project is checked, end to end · size M · `done` (2026-10-30)
 **Goal.** `stocktake` installs, runs against a real Python project and prints a correct report, with the tooling and tests in place.
 
 **Scope.** US-001, US-002, US-003, US-005, US-020, US-021, US-022, US-023, US-030, US-035
@@ -13,10 +13,21 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 - Readers: `dockerfile` (pip/uv/pipx pins, GitHub release downloads), `python_project` (`pyproject.toml` at the installed version).
 - Registries: `pypi`, `github`, `osv` (PyPI ecosystem), with the six-hour cache and the offline/rate-limited distinction.
 - Policy in TOML, read from `.stocktake.toml`, with reason and `until` and the overdue-entry failure.
-- `stocktake` CLI: `--format text|json`, `--only all|outdated|vulnerable`, `--root`, `--policy`, `--refresh`, `--all-advisories`; exit codes 0/1/2.
+- `stocktake` CLI: `--format text|json`, `--only all|outdated|vulnerable`, `--root`, `--config`, `--refresh`, `--all-advisories`, `--version`; exit codes 0/1/2.
 - The 33 ported tests, adapted to the new module layout, plus guard tests for the missed-pin count.
 
 **Exit criteria.** A fresh clone runs `uv sync && uv run pytest` green on Windows and Linux; `stocktake --root <a copy of ai-suite>` reproduces the findings the `ai-suite` version reports for the same input; `ruff check`, `ruff format --check` and `mypy` pass clean; README documents install and one command.
+
+**What actually shipped**, where it differs from the plan above:
+- 148 tests, not 33: splitting the module along its boundaries made several behaviours testable on their own that were previously only covered through the whole pipeline.
+- `--policy` became `--config`, since the file holds the excludes as well as the policy.
+- Exit code 2 also covers a config file that cannot be read, so a malformed policy can never silently fall back to defaults.
+- Unread-manifest reporting (US-034) landed here rather than in M1: carrying it in the `Report` and rendering it was a few lines, and M1 now only has to make it configurable.
+- Two extra modules the plan did not name: `advisories.py` (merging and ranking, pulled out of the registry client so `report/` can use it without importing `registries/`) and `readers/pep508.py` (what a Python requirement looks like, in one place, because both Dockerfile and manifest readers need it).
+- `uv` is the documented install path but was not available on the development machine, so the suite was verified with `pip install -e` into a 3.11 virtual environment instead. CI covers 3.11 and 3.13 on Windows and Linux.
+- A guard test asserts the core imports nothing outside the standard library, so ADR 0001's promise cannot be broken quietly.
+
+**Verified.** 148 tests pass (including the live network check); `ruff check`, `ruff format --check` and `mypy --strict` clean; the scanner reproduces the original's output on `ai-suite`'s real manifests exactly — 40 dependencies, identical names, versions, sources and specifiers. CI itself is not verified until the branch is pushed.
 
 ### M1 — Config, excludes and the reader interface · size S · `planned`
 **Goal.** Nothing in the code knows about any particular project.
@@ -48,7 +59,7 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 
 **Scope.** US-032, US-033
 - `npm` reader: `package.json` plus `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` for resolved versions; `registries/npm.py`; OSV ecosystem `npm`.
-- `workflows` reader: `uses: owner/repo@ref` in `.github/workflows/*.yml`, comparing a pinned SHA or tag against the newest release.
+- `workflows` reader: `uses: owner/repo@ref` in `.github/workflows/*.yml`, comparing a pinned SHA or tag against the newest release. Add `.github/workflows/*.yml` to `MANIFEST_KINDS` in the *same* change, so this repository's own workflow becomes checked rather than merely unread — adding it before the reader exists would only force a self-exclusion.
 - `containers`: `FROM image:tag` and `@sha256:` digests — is there a newer patch tag, has the tag moved.
 - Per-ecosystem version comparison (SemVer for npm, PEP 440 for PyPI, bare integers for release tags), with the awkward cases as test cases.
 
@@ -77,7 +88,12 @@ Go (`go.mod`, proxy.golang.org, OSV `Go`), Rust (`Cargo.toml`/`Cargo.lock`, crat
 Print the exact edit that would fix each finding, with a changelog or compare link. It never applies it. Needs a careful answer to "what is the right target version" per ecosystem; the advisory fix target already solves half of it.
 
 ## Tech debt and known gaps
-Nothing yet — the project has no code. Entries get added here as they appear, and every `TODO` in the code gets a line here.
+Every `TODO` in the code gets a line here. There are none.
+
+From M0:
+- **This repository's own GitHub Actions pins are not checked.** `.github/workflows/ci.yml` pins `actions/checkout@v7` and `actions/setup-python@v7` by tag, and nothing watches them. Tracked in M3, which adds the reader and the manifest kind together.
+- **`role` is a bare string**, with the values `runtime`, `dev`, `image` and (from M3) `ci`. It wants to be an enum once M3 settles what the values actually are.
+- **The `binaries` group is enabled by name only.** Until M1's config lands, every reader runs on every project; `scan(groups=[...])` exists and is tested but nothing in the CLI passes it yet.
 
 Carried over from the `ai-suite` original, to be addressed as noted:
 - **GitHub release downloads get no advisory check.** OSV has no good key for a release binary. The writeup's idea of mapping to the Go or Cargo module it was built from is unproven. Tracked for M6; until then the docs say plainly that these get "newest tag" only.

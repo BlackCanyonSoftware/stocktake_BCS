@@ -22,17 +22,23 @@ The `ai-suite` implementation has both concerns in one 500-line module, with `sc
 Option A.
 
 ```python
-class Reader(Protocol):
-    name: str                                                    # "python", "npm", "workflows", "containers"
-    def interested(self, path: Path) -> bool: ...
-    def read(self, path: Path, text: str, ctx: Context) -> Iterable[Dep]: ...
+# readers/base.py — a reader is stateless, so it is a function plus its declared interest, not a class
+@dataclass(frozen=True, slots=True)
+class Reader:
+    group: str                              # the name a project enables: "python", "binaries", "npm", ...
+    interested: Callable[[Path], bool]
+    read: Callable[[Path, str, Context], Iterable[Dep]]
+    description: str = ""
 
-class RegistryClient(Protocol):
-    ecosystem: str                                               # "PyPI", "npm", "GitHub", "Docker"
-    def latest(self, name: str) -> Versions | None: ...          # newest, plus withdrawn versions
+# registries/base.py — a client holds a cache, so this one really is a protocol over objects
+class Client(Protocol):
+    ecosystem: str                          # "PyPI", "npm", "GitHub", "Docker"
+    def latest(self, name: str) -> Versions | None: ...     # newest, plus withdrawn versions
 ```
 
-Advisories stay separate from `RegistryClient`, because OSV answers for every ecosystem from one batched endpoint; it is one client taking `(ecosystem, name, version)` triples, not one per ecosystem.
+Readers are registered by a `@reader(group, interested)` decorator at the bottom of each reader module; clients are wired to one shared cache in `registries/__init__.py`, which is the only module that knows which concrete clients exist.
+
+Advisories stay separate from `Client`, because OSV answers for every ecosystem from one batched endpoint; it is one `AdvisoryClient` taking `(ecosystem, name, version)` triples, not one per ecosystem.
 
 `Context` carries the project root and an `installed(name)` callable, so a reader can report the version actually present in the environment without importing `importlib.metadata` itself — which is also what makes that behaviour testable with a dict.
 
