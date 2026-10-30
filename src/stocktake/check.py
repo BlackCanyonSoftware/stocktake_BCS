@@ -9,13 +9,15 @@ them out for itself, the two would drift, and a project's test suite would start
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 
 from stocktake.config import Config, ConfigError, load_config
 from stocktake.evaluate import evaluate
-from stocktake.models import Report
+from stocktake.models import Dep, Report
 from stocktake.readers import InstalledFn
+from stocktake.readers.npm import RUN_INSTALL_NOTE
 from stocktake.registries import Cache, Registries
 from stocktake.report import render_text
 from stocktake.scan import NO_ENVIRONMENT_NOTE, find_environment, scan, unread_manifests
@@ -29,6 +31,21 @@ def _environment_path(root: Path, named: str | None) -> Path | None:
         return None
     chosen = Path(named).expanduser()
     return chosen if chosen.is_absolute() else root / chosen  # a path in a config file means a path in that project
+
+
+def notes_about(deps: Sequence[Dep], environment_found: bool) -> list[str]:
+    """What a reader needs to know about this run in order to judge the findings in it.
+
+    Each note is tied to the ecosystem it is about, which is not a detail: a run against a project with no Python in it was telling its owner
+    to point StockTake at a Python environment, which is advice that cannot help and makes the rest of the report look less careful than it is.
+    """
+    notes = []
+    if not environment_found and any(d.ecosystem == "PyPI" and d.version is None and d.role != "image" for d in deps):
+        # A Dockerfile's unpinned install is about what the image will build, not about which environment we looked in.
+        notes.append(NO_ENVIRONMENT_NOTE)
+    if any(d.ecosystem == "npm" and d.version is None for d in deps):
+        notes.append(RUN_INSTALL_NOTE)
+    return notes
 
 
 def run_check(
@@ -49,21 +66,18 @@ def run_check(
     """
     settings = config if config is not None else load_config(root, config_path)
 
+    environment_found = True
     lookup = installed
-    notes: list[str] = []
     if lookup is None:
         chosen = _environment_path(root, environment or settings.environment)
         found = find_environment(root, chosen)
         if chosen is not None and not found.found:
             raise ConfigError(f"no Python environment found at {chosen}")
-        lookup = found.version
-        if not found.found:
-            notes.append(NO_ENVIRONMENT_NOTE)
+        lookup, environment_found = found.version, found.found
 
     deps = scan(root, settings, lookup)
-    # Only worth saying when something actually went unresolved because of it. A Dockerfile's unpinned install is about the image, not us.
-    if notes and not any(d.version is None and d.role != "image" for d in deps):
-        notes.clear()
+    # Nothing to say when the caller supplied the answers itself: advice about where to find them is not ours to give.
+    notes = [] if installed is not None else notes_about(deps, environment_found)
 
     asking = registries if registries is not None else Registries(Cache(ttl=settings.cache_ttl_seconds, refresh=refresh))
     report = evaluate(deps, asking, settings.policy, today, unread_manifests(root, settings), notes, settings.source)

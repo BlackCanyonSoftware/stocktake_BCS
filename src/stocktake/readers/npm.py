@@ -42,6 +42,15 @@ NOT_A_REGISTRY_VERSION = (
 # Values that fix nothing at all.
 ANY_VERSION = frozenset({"", "*", "x", "latest", "next"})
 
+# Said per finding, because "not installed in this environment" reads as a Python environment and means nothing to a Node project.
+NOT_INSTALLED = "not installed in node_modules, and no version is pinned"
+
+# Said once per run, when ranges went unresolved. True whether node_modules is missing entirely or merely incomplete.
+RUN_INSTALL_NOTE = (
+    "Some npm dependencies are declared as a range and are not installed, so they could not be resolved to a version. "
+    "Run `npm install` (or `npm ci`) where they are declared and check again."
+)
+
 EXACT = re.compile(r"^(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]*)?)$")
 
 SECTIONS = (
@@ -130,7 +139,8 @@ def read_package_json(path: Path, text: str, context: Context) -> Iterable[Dep]:
             if parsed is None:
                 continue
             pinned, spec = parsed
-            yield Dep("npm", str(name), pinned or installed(str(name)), context.source(path), spec, role)
+            version = pinned or installed(str(name))
+            yield Dep("npm", str(name), version, context.source(path), spec, role, "" if version else NOT_INSTALLED)
 
 
 def _locked_packages(data: dict[str, Any]) -> Iterator[tuple[str, str]]:

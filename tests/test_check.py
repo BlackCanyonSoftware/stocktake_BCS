@@ -142,6 +142,71 @@ def test_a_suite_skips_without_asking_anything_when_told_it_is_offline(tmp_path,
     assert net.calls == [], "being told we are offline means not trying"
 
 
+# ---------- what the run says about itself ----------
+# Found by running the tool against four of the author's real projects. Each of these was wrong there before it was right.
+def test_a_project_with_no_python_in_it_is_not_told_to_find_a_python_environment(tmp_path):
+    """A pure Node project was being advised to pass --environment, which cannot help it and makes the rest of the report look careless."""
+    root = tmp_path / "node-only"
+    root.mkdir()
+    (root / "package.json").write_text('{"name": "x", "dependencies": {"left-pad": "^1.0.0"}}', encoding="utf-8")
+
+    report = run_check(root, registries=registries(tmp_path, FakeNet(npm={"left-pad": "1.3.0"})), today=TODAY)
+    assert not any("Python environment" in note for note in report.notes)
+    assert any("npm install" in note for note in report.notes), "and it should be told the thing that would help"
+
+
+def test_a_python_range_that_went_unresolved_does_ask_for_an_environment(tmp_path):
+    root = tmp_path / "python-only"
+    root.mkdir()
+    (root / "requirements.txt").write_text("django>=5.2\n", encoding="utf-8")
+
+    report = run_check(root, registries=registries(tmp_path, FakeNet(pypi={"django": ("5.2.1", [])})), today=TODAY)
+    assert any("Python environment" in note for note in report.notes)
+    assert not any("npm install" in note for note in report.notes)
+
+
+def test_a_project_with_both_problems_is_told_about_both(tmp_path):
+    root = tmp_path / "both"
+    root.mkdir()
+    (root / "requirements.txt").write_text("django>=5.2\n", encoding="utf-8")
+    (root / "package.json").write_text('{"name": "x", "dependencies": {"left-pad": "^1.0.0"}}', encoding="utf-8")
+
+    net = FakeNet(pypi={"django": ("5.2.1", [])}, npm={"left-pad": "1.3.0"})
+    notes = run_check(root, registries=registries(tmp_path, net), today=TODAY).notes
+    assert len(notes) == 2
+
+
+def test_a_dockerfiles_unpinned_install_asks_for_nothing(tmp_path):
+    """It is about what the image will build when it is built, not about which environment StockTake looked in."""
+    root = tmp_path / "image"
+    root.mkdir()
+    (root / "Dockerfile").write_text("FROM python:3.12\nRUN pip install ruff\n", encoding="utf-8")
+
+    report = run_check(root, registries=registries(tmp_path, FakeNet(pypi={"ruff": ("0.17.3", [])})), today=TODAY)
+    assert report.notes == ()
+    assert report.counts["unpinned"] == 1
+
+
+def test_an_npm_range_that_is_not_installed_says_node_modules_and_not_this_environment(tmp_path):
+    """ "not installed in this environment" reads as a Python environment, which means nothing to somebody reading a Node project's report."""
+    root = tmp_path / "node-only"
+    root.mkdir()
+    (root / "package.json").write_text('{"name": "x", "dependencies": {"left-pad": "^1.0.0"}}', encoding="utf-8")
+
+    report = run_check(root, registries=registries(tmp_path, FakeNet(npm={"left-pad": "1.3.0"})), today=TODAY)
+    finding = next(f for f in report.findings if f.dep.name == "left-pad")
+    assert finding.status == "unpinned"
+    assert finding.note == "not installed in node_modules, and no version is pinned"
+
+
+def test_the_caller_that_supplied_the_answers_is_given_no_advice_about_finding_them(tmp_path):
+    root = tmp_path / "both"
+    root.mkdir()
+    (root / "requirements.txt").write_text("django>=5.2\n", encoding="utf-8")
+    net = FakeNet(pypi={"django": ("5.2.1", [])})
+    assert run_check(root, registries=registries(tmp_path, net), installed=lambda name: None, today=TODAY).notes == ()
+
+
 def test_a_suite_passes_quietly_when_everything_is_current(tmp_path, recwarn):
     net = FakeNet(pypi={"a": ("1.0", [])})
     assert_dependencies_are_safe(project(tmp_path), registries=registries(tmp_path, net), installed=lambda name: None, today=TODAY)

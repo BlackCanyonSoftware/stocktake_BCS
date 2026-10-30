@@ -989,6 +989,15 @@ NOT_A_REGISTRY_VERSION = (
 # Values that fix nothing at all.
 ANY_VERSION = frozenset({"", "*", "x", "latest", "next"})
 
+# Said per finding, because "not installed in this environment" reads as a Python environment and means nothing to a Node project.
+NOT_INSTALLED = "not installed in node_modules, and no version is pinned"
+
+# Said once per run, when ranges went unresolved. True whether node_modules is missing entirely or merely incomplete.
+RUN_INSTALL_NOTE = (
+    "Some npm dependencies are declared as a range and are not installed, so they could not be resolved to a version. "
+    "Run `npm install` (or `npm ci`) where they are declared and check again."
+)
+
 EXACT = re.compile(r"^(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]*)?)$")
 
 SECTIONS = (
@@ -1077,7 +1086,8 @@ def read_package_json(path: Path, text: str, context: Context) -> Iterable[Dep]:
             if parsed is None:
                 continue
             pinned, spec = parsed
-            yield Dep("npm", str(name), pinned or installed(str(name)), context.source(path), spec, role)
+            version = pinned or installed(str(name))
+            yield Dep("npm", str(name), version, context.source(path), spec, role, "" if version else NOT_INSTALLED)
 
 
 def _locked_packages(data: dict[str, Any]) -> Iterator[tuple[str, str]]:
@@ -2553,6 +2563,21 @@ def _environment_path(root: Path, named: str | None) -> Path | None:
     return chosen if chosen.is_absolute() else root / chosen  # a path in a config file means a path in that project
 
 
+def notes_about(deps: Sequence[Dep], environment_found: bool) -> list[str]:
+    """What a reader needs to know about this run in order to judge the findings in it.
+
+    Each note is tied to the ecosystem it is about, which is not a detail: a run against a project with no Python in it was telling its owner
+    to point StockTake at a Python environment, which is advice that cannot help and makes the rest of the report look less careful than it is.
+    """
+    notes = []
+    if not environment_found and any(d.ecosystem == "PyPI" and d.version is None and d.role != "image" for d in deps):
+        # A Dockerfile's unpinned install is about what the image will build, not about which environment we looked in.
+        notes.append(NO_ENVIRONMENT_NOTE)
+    if any(d.ecosystem == "npm" and d.version is None for d in deps):
+        notes.append(RUN_INSTALL_NOTE)
+    return notes
+
+
 def run_check(
     root: Path,
     *,
@@ -2571,21 +2596,18 @@ def run_check(
     """
     settings = config if config is not None else load_config(root, config_path)
 
+    environment_found = True
     lookup = installed
-    notes: list[str] = []
     if lookup is None:
         chosen = _environment_path(root, environment or settings.environment)
         found = find_environment(root, chosen)
         if chosen is not None and not found.found:
             raise ConfigError(f"no Python environment found at {chosen}")
-        lookup = found.version
-        if not found.found:
-            notes.append(NO_ENVIRONMENT_NOTE)
+        lookup, environment_found = found.version, found.found
 
     deps = scan(root, settings, lookup)
-    # Only worth saying when something actually went unresolved because of it. A Dockerfile's unpinned install is about the image, not us.
-    if notes and not any(d.version is None and d.role != "image" for d in deps):
-        notes.clear()
+    # Nothing to say when the caller supplied the answers itself: advice about where to find them is not ours to give.
+    notes = [] if installed is not None else notes_about(deps, environment_found)
 
     asking = registries if registries is not None else Registries(Cache(ttl=settings.cache_ttl_seconds, refresh=refresh))
     report = evaluate(deps, asking, settings.policy, today, unread_manifests(root, settings), notes, settings.source)

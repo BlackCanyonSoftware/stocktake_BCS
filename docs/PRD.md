@@ -130,8 +130,8 @@ The measure of success is boring: it stays switched on. A checker that fails the
 
 ## Success metrics
 - The check is still enabled in every project it was added to three months later (the real metric; the tool failing on "old" is what kills it).
-- First run on a project the author believed to be current finds at least one thing worth acting on.
-- False positives found in use are fixed and get a regression test; the count trends to zero.
+- First run on a project the author believed to be current finds at least one thing worth acting on. **Met: five real projects run, vulnerable dependencies in every one.**
+- False positives found in use are fixed and get a regression test; the count trends to zero. **Three found so far, all by running it against real projects, all fixed with regression tests.**
 - A stranger can go from `uv tool install stocktake` to a readable report in under five minutes using the README alone.
 
 ## Assumptions
@@ -152,7 +152,9 @@ The measure of success is boring: it stays switched on. A checker that fails the
 ## Open questions
 - Should `outdated` ever be allowed to fail, behind a strictness flag, for a project that wants to stay current? (Leaning yes, off by default, decided when a project asks for it.)
 - Does the shared cache at `~/.cache/stocktake/` need locking once several projects run the check concurrently in CI?
-- Is `stocktake` the right name to publish on PyPI (it is free as of 2026-10-29), and should publishing wait until there are two real consumers?
+- **Publish to PyPI?** The metadata is complete and `stocktake` was still unclaimed on 2026-10-30. Publishing is outward-facing and effectively permanent, so it waits for a decision rather than a default. Against: there is still no consumer outside the author's own machine. For: the name, and `uv tool install stocktake` becoming true rather than aspirational.
+- **Does StockTake get its own entry in the brand kit, or borrow the company mark?** The kit has no `stocktake` brand, and the company's shared mark is generated at `Brand Logos/dist/black-canyon-software/`. Either way the work belongs in the brand repository.
+- Should a dependency pinned too loosely — a moving `@v7`, an npm `^1.2.3` — be a finding of its own? [ADR 0008](adr/0008-a-tag-its-publisher-moves-is-a-range.md) deliberately says nothing about it rather than conflating it with being out of date.
 - For npm, should the check read the lockfile's resolved versions only, or also flag a `package.json` range that permits a vulnerable version?
 
 ## Glossary

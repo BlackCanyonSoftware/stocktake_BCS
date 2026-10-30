@@ -111,15 +111,27 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 
 **Verified.** 407 tests pass on 3.11 and 3.13; ruff and strict mypy clean. The SARIF produced from a real 392-package project validates against the published SARIF 2.1.0 schema: 195 results, 3 errors and 192 notes, located at `package-lock.json` with `%SRCROOT%`. **The vendored file was copied to a directory of its own and run by a different interpreter with no `stocktake` installed, against that same real project, and produced the same three vulnerable findings** — which is US-013 as written. The byte-for-byte guard earned its keep within the session: a `ruff format` pass touched one core module, the committed copy went stale, and the test caught it. CI's new upload step is **not verified** and cannot be until the branch is pushed.
 
-## Now
-
-### M5 — Presentable in public · size S · `planned`
+### M5 — Presentable in public · size S · `done` (2026-10-30), bar two things the owner decides
 **Scope.** US-006 (readability), the public-facing half of G6
 - README with real example output, the non-goals stated plainly, and a comparison table against Dependabot and Renovate.
 - `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md`/`CLAUDE.md`, `docs/HANDOFF.md`.
 - This repo runs its own check in CI and uploads the SARIF.
 - Run it against three of the author's other projects, write down everything it gets wrong, and fix each with a regression test.
 - Decide whether to publish to PyPI.
+
+**What actually shipped**
+- `CHANGELOG.md` (Keep a Changelog; everything under *Unreleased*, because nothing has been released), `CONTRIBUTING.md`, `AGENTS.md` with a `CLAUDE.md` importing it. README gained a "Does it work?" section built out of what the real runs found, and links to the new documents.
+- **Run against four more real projects** — `financial-chatbot` (a Dockerfile, a `requirements.txt`, three `package.json`/lock pairs and six workflow files), `pixel-galaxy-studio`, `MyEdMaster-FinancialEducation-Chatbot` and `Brand Logos` — on top of `DayandNight_BCS` from M3. About two thousand dependencies in total. Vulnerable dependencies in every one of them.
+- **One class of thing it got wrong, found that way and fixed with six regression tests:** advice aimed at the wrong ecosystem. `pixel-galaxy-studio` has no Python in it at all and was being told to point StockTake at a Python environment, which cannot help it and makes the rest of the report look careless. Run-level notes are now tied to the ecosystem they are about, and a Node project whose `node_modules` is missing is told to run `npm install` instead. The per-finding note changed too: "not installed in this environment" reads as a Python environment and means nothing to somebody reading a Node project's report.
+- **One thing that looked wrong and was not**, worth recording so it is not "fixed" later: `financial-chatbot/backend/Dockerfile` produced no findings. Its only install is `RUN pip install -r requirements.txt`, which names no packages — and that `requirements.txt` is read on its own account, yielding 14. The reader is right.
+
+**Verified.** 413 tests on 3.11 and 3.13; ruff and strict mypy clean. The real-project runs are in the session scratchpad, not the repository. The SARIF upload step in CI remains **unverified** and cannot be checked without a push.
+
+**Left for the owner, not decided here:**
+- **The logo.** The brand kit has no `stocktake` brand, and its own note says to ask when a brand has no generated assets. The company's shared mark exists at `Brand Logos/dist/black-canyon-software/` in several lockups; whether StockTake should borrow that or get an entry of its own in the kit is a branding decision, and that work belongs in the brand repository rather than this one.
+- **PyPI.** The packaging metadata is complete and the name was still unclaimed on 2026-10-30. Publishing is outward-facing and effectively permanent, so it waits for an explicit decision.
+
+## Now
 
 ### M6 — More ecosystems · size L · `planned`
 Each is one reader, one registry client, one guard test. The first two are carried over from M3 and are the ones a real project is most likely to want next:

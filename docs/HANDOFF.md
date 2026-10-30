@@ -1,7 +1,9 @@
 # StockTake: handoff
 
 ## Current state
-**Milestones 0 to 4 are done and verified**, except container tags, which moved to M6 (see the roadmap for why). 407 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. The next session starts Milestone 5: the public polish.
+**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why). 413 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. The next session starts Milestone 6, or the two decisions M5 left to the owner.
+
+**It has been run against five real projects** — about two thousand dependencies, Python, Node and mixed — and found vulnerable dependencies in every one. Three of its own bugs were found that way and only that way.
 
 It reads **four ecosystems**: `python` (seven manifest kinds), `npm` (`package.json`, `package-lock.json`, `node_modules`), `workflows` (GitHub Actions pins) and `binaries` (GitHub release downloads). It reports as text, JSON, SARIF or one line. It drops into another project's pytest suite in one line, writes its own test file with `stocktake init`, and writes itself as one dependency-free file with `stocktake vendor`.
 
@@ -12,7 +14,7 @@ Commits are local only. Nothing has been pushed; CI has therefore never run and 
 ```bash
 py -3.11 -m venv .venv
 ./.venv/Scripts/python -m pip install -e ".[dev]"   # .venv/bin/python on macOS and Linux
-./.venv/Scripts/python -m pytest                    # 407 tests, ~6s (includes the live check, via the plugin)
+./.venv/Scripts/python -m pytest                    # 413 tests, ~6s (includes the live check, via the plugin)
 ./.venv/Scripts/stocktake vendor vendored/          # after ANY change to the core, or a test fails
 ./.venv/Scripts/python -m stocktake                 # check this project itself
 ```
@@ -35,16 +37,20 @@ It is a generalisation of `modules/depcheck` in the author's `ai-suite` reposito
 - Scope confirmed by the owner on 2026-10-29: Python + npm + GitHub Actions + container tags for v1; MIT licence; package plus vendor command; leave `ai-suite` alone.
 
 ## Work in progress
-None. M0 to M4 are complete; M5 has not been started.
+None. M0 to M5 are complete; M6 has not been started.
 
 ## Next steps
-1. **Adopt it.** The highest-value thing available, and it has been since M2. Every one of the author's Python *and* JavaScript projects can take the check with one line (`stocktake = true`) or one command (`stocktake init`), and the four ecosystems cover everything found on this machine. It is the only way to find the false positives — all three found so far were found this way, and each became a decision or a fix ([ADR 0006](adr/0006-which-environment-an-installed-version-comes-from.md), [ADR 0008](adr/0008-a-tag-its-publisher-moves-is-a-range.md), the connection retry).
-2. **Milestone 5** ([ROADMAP.md](ROADMAP.md)): `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md`/`CLAUDE.md`, a logo from the brand kit, and the decision about publishing to PyPI. The feature work is far enough ahead of the presentation now that this is the gap.
-3. **Push, so CI is verified for the first time.** It has never run. The new code-scanning upload step in particular cannot be verified any other way.
+1. **Two decisions the owner has to make**, both recorded in [ROADMAP.md](ROADMAP.md) under M5 and in the PRD's open questions: whether to publish to PyPI (metadata is ready, the name was free on 2026-10-30), and whether StockTake gets its own brand-kit entry or borrows the company mark. Neither is a coding task; the second one's work lives in the brand repository.
+2. **Switch the check on in the projects it was run against.** They have been *checked* but have not *adopted* it — nothing was changed in any of them. One line (`stocktake = true`) or one command (`stocktake init`) each.
+3. **Push, so CI is verified for the first time.** It has never run. The code-scanning upload step in particular cannot be verified any other way.
+4. **Milestone 6** when there is appetite: container tags and the YAML lock files, both carried over from M3 with reasons.
 
-**Known findings in the author's own repositories, not acted on and not raised as changes:**
-- `Documents/Brand Logos`: installed Pillow 11.2.1 has 58 advisories (5 critical), fonttools 4.58.0 has 1. Both declared as ranges, so the pins are not wrong — the installed versions are old. Its CI also pins `actions/checkout@v4` and `actions/setup-python@v5`, three majors behind.
-- `Documents/DayandNight_BCS`: `electron` 44.9.0 (1 high, fixed in 44.9.1) and `fast-uri` 3.1.8 (4 advisories, fixed in 3.1.9), agreeing exactly with `npm audit`. Its CI pins `actions/checkout@v5`.
+**Known findings in the author's own repositories. Nothing was changed in any of them, and none of this has been acted on.**
+- `Brand Logos`: installed Pillow 11.2.1 has 58 advisories (5 critical), fonttools 4.58.0 has 1. Both declared as ranges, so the pins are not wrong — the installed versions are old. Its CI pins `actions/checkout@v4` and `actions/setup-python@v5`, three majors behind. Needs `--environment` (it installs into the global Python).
+- `DayandNight_BCS`: `electron` 44.9.0 (1 high, fixed in 44.9.1) and `fast-uri` 3.1.8 (4 advisories, fixed in 3.1.9), agreeing exactly with `npm audit`. CI pins `actions/checkout@v5`.
+- `pixel-galaxy-studio`: **the worst of the five.** `tar 6.2.1` with 12 advisories including one critical, `electron 33.4.11` with 46, plus `app-builder-lib`, `builder-util-runtime`, `extract-zip` (2 high, and no fixed version is named) and `ip-address`. CI pins four actions at `@v4`, three majors behind. No `node_modules`, so its `package.json` ranges are unresolved.
+- `MyEdMaster-FinancialEducation-Chatbot`: **18 vulnerable**, the highest count of the five. Python `requirements.txt` plus a Node frontend.
+- `financial-chatbot`: 4 vulnerable (`zod` at three different versions across three lockfiles, `fast-uri`). Notable as the richest test case available — a Dockerfile, a `requirements.txt`, three `package.json`/lock pairs and six workflow files, 768 dependencies. Its actions are pinned to commit SHAs *with* version comments, which is the good practice the workflows reader is built to read.
 
 ## How M0 and M1 were verified, and what that did not cover
 - 221 tests pass on Python 3.11 and 3.13, including the one marked `network` that asks the real registries about this project's own dependencies.
@@ -96,6 +102,9 @@ These come from the original's first real run and from building M0. None should 
 - **Loading the vendored file by path needs it in `sys.modules` first.** An ordinary `import stocktake_vendored` does that; `module_from_spec` + `exec_module` without it breaks `@dataclass` under postponed annotations, because the dataclass machinery looks the module up there to resolve `ClassVar`. `tests/test_vendor.py` has the working loader.
 - **The core must stay concatenatable.** No two core modules may define the same top-level name, and none may import something `vendor.py` excludes (the command line, `init_project`, the pytest plugin). The generator refuses rather than emitting, so this shows up as a clear failure rather than a subtly wrong copy.
 - **A guard written by matching lines will bite you.** The stdlib-only guard used to scan for lines starting with `import`, and `vendor.py`'s docstring contains an example `import stocktake_vendored`. It now parses with `ast`, which also catches imports inside functions.
+- **Advice has to be tied to the ecosystem it is about.** `notes_about()` in `check.py` emits the Python-environment note only when a *PyPI* range went unresolved, and the npm note only when an npm one did. Before that, a pure Node project was told to pass `--environment`, which cannot help it. Six regression tests cover the combinations.
+- **A Dockerfile whose only install is `RUN pip install -r requirements.txt` correctly yields nothing.** The `-r` consumes the filename, no package is named on the line, and the `requirements.txt` is read on its own account. This looks like a miss and is not; do not "fix" it.
+- **`uv` is still not installed on this machine**, and nothing has been installed without asking. The repo is developed with `py -3.11 -m venv` plus `pip install -e`. The 3.13 environment used for the second test run lives in the session scratchpad, not the repo.
 
 ## Projects to try it on (M5)
 The owner has about ten repositories available for this, and the list is the most valuable thing M5 can have. Known so far:
@@ -108,6 +117,9 @@ The owner has about ten repositories available for this, and the list is the mos
 In [PRD.md](PRD.md) under "Open questions". None block M1. The one worth deciding soonest: whether to publish `stocktake` to PyPI now (the name is free as of 2026-10-29) or wait until there are two real consumers.
 
 ## Session log
+### Session 7 — 2026-10-30
+Built Milestone 5: `CHANGELOG.md`, `CONTRIBUTING.md`, `AGENTS.md` with `CLAUDE.md`, and a README section built out of what the real runs found. Ran the tool against four more real projects — about two thousand dependencies across Python, Node and mixed — and fixed the one class of thing it got wrong: run-level advice aimed at the wrong ecosystem, with six regression tests. Recorded one thing that looked wrong and was not. 407 → 413 tests. Left the logo and the PyPI decision to the owner, with the options written down. Committed locally; not pushed.
+
 ### Session 6 — 2026-10-30
 Built Milestone 4: SARIF 2.1.0 output (validated against the published schema by the test suite, with `jsonschema` added to the dev extra for that one job), `--format summary`, and `stocktake vendor` — a generator that emits the core as one flat file in computed dependency order and refuses rather than emitting on a duplicated name, a missing dependency, a cycle or an empty core. The copy is committed in `vendored/` and three guards hold it in place. Amended [ADR 0005](adr/0005-installed-package-plus-a-generated-single-file-copy.md) where the equivalence guard differs from what it promised. 342 → 407 tests. The vendored file was verified standalone, by another interpreter with nothing installed, against a real 392-package project. Committed locally; not pushed.
 

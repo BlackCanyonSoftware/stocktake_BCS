@@ -282,13 +282,27 @@ Stated plainly, because they are decisions and not omissions:
 
 | | |
 |---|---|
+| [CONTRIBUTING.md](CONTRIBUTING.md) | setting up, the boundaries, how to add an ecosystem, what must never change |
+| [CHANGELOG.md](CHANGELOG.md) | what changed |
 | [docs/PRD.md](docs/PRD.md) | what it is for, the user stories, the non-functional requirements |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | the shape, the module boundaries, how to add an ecosystem |
 | [docs/DESIGN.md](docs/DESIGN.md) | the report layout, statuses, exit codes, output states |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | what is built and what is next |
-| [docs/adr/](docs/adr/) | why it is built this way |
+| [docs/adr/](docs/adr/) | why it is built this way, including where a first attempt was wrong |
 | [docs/HANDOFF.md](docs/HANDOFF.md) | current state, for picking the work back up |
+
+## Does it work?
+
+It has been run against five real projects — Python, Node, and mixed — totalling about two thousand dependencies.
+
+- On a 392-package Node project it agreed **exactly** with `npm audit`: the same two vulnerable packages, the same severities, the same four advisories on one of them. It also named the versions that fix them, which `npm audit` reports only as "a fix is available".
+- Across the five it found vulnerable dependencies in every one, including `tar 6.2.1` with 12 advisories (one critical) and an `electron` with 46.
+- It found three of its own bugs that way, and only that way: ranges resolved against the wrong environment, a moving tag reported as outdated, and advice aimed at the wrong ecosystem. Each is fixed, each has a regression test, and the two that were decisions rather than slips are written up in [docs/adr/](docs/adr/).
+
+Which is the honest summary: **the false positives in this tool were found by using it, not by designing it**, so if you find another one, that is the expected way for it to improve.
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). Contributions are welcome; [CONTRIBUTING.md](CONTRIBUTING.md) says how the pieces fit and which rules are not up for negotiation.
+
+StockTake is made by [Black Canyon Software](https://blackcanyonsoftware.com).
