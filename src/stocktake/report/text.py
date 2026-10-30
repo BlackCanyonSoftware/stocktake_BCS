@@ -75,6 +75,10 @@ def render_text(report: Report, only: str = "all", all_advisories: bool = False,
             "Nothing was found to check. If that is a surprise, the project's excludes or enabled ecosystems are the place to look.",
         ]
 
+    # Anything that affects how much of the report can be trusted comes before the findings themselves.
+    for note in report.notes:
+        lines += ["", f"NOTE: {note}"]
+
     for problem in report.policy_problems:
         lines += ["", f"POLICY: {problem}"]
 

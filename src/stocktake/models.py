@@ -39,7 +39,9 @@ class Dep:
     version: str | None  # pinned, resolved or installed; None when nothing fixes it
     source: str  # "docker/dev/Dockerfile:10"
     spec: str = ""  # as written, e.g. ">=8"
-    role: str = "runtime"  # runtime | dev | image | ci
+    # Who declared it: runtime or dev dependency of the project, baked into an image, used by CI, or resolved by a lock file (which does not
+    # record which group it belongs to).
+    role: str = "runtime"  # runtime | dev | image | ci | locked
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +78,14 @@ class Finding:
 
 
 @dataclass(frozen=True, slots=True)
+class Unread:
+    """Dependency manifests no registered reader understands, split by whether the project has said it knows."""
+
+    reported: tuple[str, ...] = ()  # nobody has acknowledged these, so they are named in the report
+    accepted: tuple[str, ...] = ()  # listed in the project's `accept_unread`: they do not nag, but they are still recorded
+
+
+@dataclass(frozen=True, slots=True)
 class Report:
     """Everything one run found."""
 
@@ -83,7 +93,11 @@ class Report:
     policy_problems: tuple[str, ...] = ()
     offline: str | None = None  # None, or why nothing could be reached
     today: str = ""
-    unread_manifests: tuple[str, ...] = ()
+    unread_manifests: tuple[str, ...] = ()  # manifests no reader understands, which the project has not acknowledged
+    accepted_unread: tuple[str, ...] = ()  # the same, but accepted in the project's config: not reported, still recorded
+    notes: tuple[
+        str, ...
+    ] = ()  # things about this run the reader needs to know to judge it, such as an environment that could not be found
 
     @property
     def failed(self) -> bool:

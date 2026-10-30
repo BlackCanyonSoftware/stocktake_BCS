@@ -1,14 +1,14 @@
 # StockTake: handoff
 
 ## Current state
-**Milestone 0 is done and verified.** The tool installs, runs against a real project and prints a correct report, with 148 passing tests, clean lint and clean strict type checking. The next session starts Milestone 1.
+**Milestones 0 and 1 are done and verified.** The tool installs, runs against real projects and prints correct reports, with 221 passing tests on Python 3.11 and 3.13, clean lint and clean strict type checking. It reads seven kinds of Python manifest across two configurable ecosystems. The next session starts Milestone 2: the pytest plugin.
 
 Commits are local only. Nothing has been pushed; CI has therefore never run and is **not verified**.
 
 ```bash
 py -3.11 -m venv .venv
 ./.venv/Scripts/python -m pip install -e ".[dev]"   # .venv/bin/python on macOS and Linux
-./.venv/Scripts/python -m pytest                    # 148 tests, ~1.5s
+./.venv/Scripts/python -m pytest                    # 221 tests, ~3s
 ./.venv/Scripts/python -m stocktake                 # check this project itself
 ```
 
@@ -23,22 +23,25 @@ It is a generalisation of `modules/depcheck` in the author's `ai-suite` reposito
 - Readers and registry clients are separate narrow interfaces, one module per ecosystem, each with a guard test — [ADR 0003](adr/0003-readers-and-registry-clients-as-separate-interfaces.md)
 - Only vulnerable, withdrawn and expired-policy findings fail; outdated warns — [ADR 0004](adr/0004-only-unsafe-findings-fail-the-build.md)
 - Installed package and pytest plugin is the primary path; a generated single-file copy is the fallback — [ADR 0005](adr/0005-installed-package-plus-a-generated-single-file-copy.md)
+- A declared range is resolved against the *project's* environment or not at all, never against StockTake's own — [ADR 0006](adr/0006-which-environment-an-installed-version-comes-from.md)
 - Scope confirmed by the owner on 2026-10-29: Python + npm + GitHub Actions + container tags for v1; MIT licence; package plus vendor command; leave `ai-suite` alone.
 
 ## Work in progress
-None. M0 is complete; M1 has not been started.
+None. M0 and M1 are complete; M2 has not been started.
 
 ## Next steps
-1. **Milestone 1** ([ROADMAP.md](ROADMAP.md)): make `ecosystems` and `cache.ttl_hours` configurable, have the CLI pass `groups` through to `scan()`, let a project acknowledge an unread manifest in config, and add the `requirements*.txt` and lockfile readers.
-2. Milestone 2: the pytest plugin, so a project adds the check in one step. This is the milestone that makes the tool actually adoptable across the author's repositories.
-3. Milestone 5 is where the ten repositories the owner mentioned get used. Start that list now (see below) — false positives found in real use are worth more than any amount of design.
+1. **Milestone 2** ([ROADMAP.md](ROADMAP.md)): `stocktake.pytest_plugin` as a `pytest11` entry point, and `stocktake init` to write a test file for projects that would rather own it. This is the milestone that makes the tool adoptable across the author's repositories in one step each. Note that the `pytest11` entry point is deliberately commented out in `pyproject.toml` until the module exists — declaring it early breaks pytest collection for anyone who installs the package.
+2. Milestone 3: npm, GitHub Actions `uses:` pins and container `FROM` tags. Add `.github/workflows/*.yml` to `MANIFEST_KINDS` in the *same* change as the workflows reader.
+3. The ten repositories the owner has are the most valuable thing available (see below). Running the current tool across them would turn M3's ordering from a guess into a list, because the unread-manifest report names every manifest kind it cannot yet read, per repository.
 
-## How M0 was verified, and what that did not cover
-- 148 tests pass, including the one marked `network` that asks the real registries about this project's own dependencies.
+## How M0 and M1 were verified, and what that did not cover
+- 221 tests pass on Python 3.11 and 3.13, including the one marked `network` that asks the real registries about this project's own dependencies.
 - `ruff check`, `ruff format --check` and `mypy` (strict, on `src`) are clean.
-- **The port is exact.** The scanner was run against `ai-suite`'s real `docker/dev/Dockerfile`, `docker/llama-swap/Dockerfile` and `pyproject.toml`, and compared against the original scanner's output on the same files: 40 dependencies, identical names, versions, source locations and specifiers, no differences at all. The comparison script is in the session scratchpad, not the repository.
+- **The port is exact, and still is after M1.** The scanner was run against `ai-suite`'s real `docker/dev/Dockerfile`, `docker/llama-swap/Dockerfile` and `pyproject.toml`, and compared against the original scanner's output on the same files: 40 dependencies, identical names, versions, source locations and specifiers, no differences at all. The comparison script is in the session scratchpad, not the repository — rebuild it if the port fidelity ever needs re-checking.
 - A real run against a project pinning `pillow==9.0.0` and `requests==2.19.1` found 52 and 5 advisories respectively and named `13.0.0` and `2.33.0` as the versions that clear them — matching what the original writeup reported for Pillow.
-- **Not covered:** CI (never pushed), Linux and macOS (only Windows was run locally; CI covers Linux), Python 3.12 and 3.13 (only 3.11 was run locally), and any project that is not Python.
+- A real run against a project with `uv.lock` plus `requirements-dev.txt` exercised all three new reader kinds against the real registries, including the project's own package being correctly skipped in the lock file.
+- **A real finding in one of the author's own projects.** Pointed at the brand-kit repository with `--environment`, it reported 58 advisories (5 critical) against the installed Pillow 11.2.1 and one against fonttools 4.58.0. Both are declared as ranges (`Pillow>=10.0`, `fonttools>=4.40`), so nothing was pinned wrongly — the installed versions are simply old. **This has not been acted on and the owner has not been asked about it.**
+- **Not covered:** CI (never pushed), macOS, Python 3.12, and any project that is not Python.
 
 ## Where the source to port from lives
 On KPrime, in `/home/kyle1/ai-suite`. Use `bash ~/.claude/bin/kp '<command>'` to run anything there, and `kpf` for a script; never hand-quote through `ssh`. Still unported, for later milestones:
@@ -59,11 +62,15 @@ These come from the original's first real run and from building M0. None should 
 - **`ruff format` reformats Python code blocks inside Markdown.** It rewrote snippets in `ARCHITECTURE.md` and ADR 0003 on the first run; `extend-exclude = ["*.md"]` now stops it.
 - **The scanner is faithful to shell semantics, which can look like a bug.** A test fixture written with a literal `\n` in a `RUN` line produced findings for a package called `n` — correctly, because `pip install \n pillow==9.0.0` really does ask for a package called `n` in a shell. Check the fixture before the code.
 - **`uv` and `pre-commit` are not installed on the development machine.** Use `py -3.11 -m venv` and `pip install -e`. Do not install tools there without asking.
+- **"The installed version" is not a simple question, and getting it wrong is silent.** See [ADR 0006](adr/0006-which-environment-an-installed-version-comes-from.md). The inherited behaviour asked whichever interpreter was running StockTake, which is the *wrong* environment for every installation path except "dev dependency of the project being checked". If anything in this area is ever simplified, re-read that ADR first.
+- **Pins and ranges are resolved in opposite directions, on purpose.** A lock file or a `==` pin wins over what is installed (it names what *will* be installed); a `pyproject.toml` or `Pipfile` range loses to what is installed (the range says nothing about what is running). Two rules, each with its own rationale, both in the reader docstrings.
+- **`DEV_WORDS` in the requirements reader is matched as whole words, not substrings.** `requirements-social.txt` contains "ci". There is a test for exactly that.
+- **An environment that exists and is empty is not the same as no environment at all.** `_read_site_packages` returns `{}` for the first and `None` for the second; conflating them made an empty virtual environment fall through to the next candidate.
 
 ## Projects to try it on (M5)
 The owner has about ten repositories available for this, and the list is the most valuable thing M5 can have. Known so far:
 - `ai-suite` on KPrime — the reference. Dockerfile pip pins, GitHub release downloads, `pyproject.toml` dev dependencies. Already compared against, scanner-only.
-- `Documents/Brand Logos` (the brand kit) — a real Python project with pytest, pre-commit, Dependabot and `.github/workflows`, so it exercises the workflow reader when M3 lands and gives a direct comparison against what Dependabot reports.
+- `Documents/Brand Logos` (the brand kit) — a real Python project with pytest, pre-commit, Dependabot and `.github/workflows`, so it exercises the workflow reader when M3 lands and gives a direct comparison against what Dependabot reports. **Already run against** (see above): it has no virtual environment of its own and installs into the user's global Python, so it needs `--environment C:/Users/Kpier/AppData/Local/Programs/Python/Python313` (or an `environment` entry in its own `.stocktake.toml`). Its `.pre-commit-config.yaml` is reported as unread, correctly.
 - A Node project, for the npm reader in M3. Not identified yet.
 - **Ask the owner for the remaining names and note them here.**
 
@@ -71,6 +78,9 @@ The owner has about ten repositories available for this, and the list is the mos
 In [PRD.md](PRD.md) under "Open questions". None block M1. The one worth deciding soonest: whether to publish `stocktake` to PyPI now (the name is free as of 2026-10-29) or wait until there are two real consumers.
 
 ## Session log
+### Session 3 — 2026-10-30
+Built Milestone 1: `.stocktake.toml` gained `ecosystems`, `accept_unread`, `environment` and `cache.ttl_hours`, all validated on read; readers added for `requirements*.txt`, `constraints*.txt`, `uv.lock`, `pdm.lock`, `poetry.lock`, `Pipfile.lock` and `Pipfile`, each with a guard test counting independently of the reader; unread manifests split into reported and accepted, so an acceptance stops the nagging without becoming invisible. Found and fixed a correctness bug in the inherited range-resolution ([ADR 0006](adr/0006-which-environment-an-installed-version-comes-from.md)) and added `--environment`. 148 → 221 tests. Verified as described above, including the first real finding in one of the owner's own projects. Committed locally; not pushed.
+
 ### Session 2 — 2026-10-30
 Built Milestone 0: repo foundation (`pyproject.toml`, ruff, mypy, pytest, CI workflow, ignore and editor files), the core ported from `ai-suite/modules/depcheck/__init__.py` and split into 20 modules along the boundaries in ARCHITECTURE.md, 148 tests, README, and three documentation corrections where the code ended up differing from the plan (`--config` not `--policy`, exit code 2's meaning, the real `Reader` shape). Verified as described above. Committed locally; not pushed.
 

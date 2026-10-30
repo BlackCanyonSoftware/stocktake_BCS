@@ -29,17 +29,26 @@ That last row is the design. A check that fails the build because a dependency i
 
 ## What it reads
 
-**Python**
+**Python** (the `python` ecosystem)
 - pip pins inside Dockerfiles — `pip install`, `uv pip install`, `uv tool install`, `pipx install` — across backslash line continuations and past options that take an argument
-- `pyproject.toml`: `dependencies`, every `optional-dependencies` group, and PEP 735 `dependency-groups`, each checked at the version **actually installed** in the current environment where there is one
+- `requirements*.txt` and `constraints*.txt`, through continuations, `--hash=` digests, `-r`/`-e`/`--index-url` options and direct `name @ url` references
+- lock files: `uv.lock`, `pdm.lock`, `poetry.lock`, `Pipfile.lock` — the project's own package skipped, since no registry has it
+- `pyproject.toml`: `dependencies`, every `optional-dependencies` group, and PEP 735 `dependency-groups`
+- `Pipfile`: `packages` and `dev-packages`
 - unpinned installs, reported as unpinned rather than skipped
 
-**Binaries**
+**Binaries** (the `binaries` ecosystem)
 - GitHub release downloads in Dockerfiles, resolving `${VERSION}` against the nearest earlier assignment, compared with the newest release tag
 
 It asks [PyPI](https://pypi.org) for the newest release and for withdrawn ones, the GitHub releases API for the newest tag, and [OSV](https://osv.dev) for advisories against the exact version in use.
 
-**Not read yet:** `requirements*.txt`, lockfiles, npm, GitHub Actions pins, container base images, Go, Rust. These are coming (see [docs/ROADMAP.md](docs/ROADMAP.md)) — and until a reader exists, a manifest of that kind is reported as **unread** rather than silently ignored, so you are never shown a clean report that quietly skipped half your project.
+### Pins, ranges, and which version gets checked
+- **A file that pins a version is checked at its pin** — a Dockerfile `==`, a lock file, a `requirements.txt` line with `==`. That is what will be installed.
+- **A file that declares a range** — `pyproject.toml`, `Pipfile`, `requirements.txt` with `>=` — says nothing about what is running, so it is checked at the version **actually installed in the project's environment**.
+
+StockTake looks for that environment in this order: one you name with `--environment PATH` (or `environment` in the config), then the project's own `.venv` or `venv`, then the environment active in your shell when you are checking the current directory. If it cannot find one, it says so and reports those dependencies as unpinned — it will not resolve them against some *other* environment, such as its own ([ADR 0006](docs/adr/0006-which-environment-an-installed-version-comes-from.md)).
+
+**Not read yet:** npm, GitHub Actions pins, container base images, Go, Rust, conda, pre-commit hooks. These are coming (see [docs/ROADMAP.md](docs/ROADMAP.md)) — and until a reader exists, a manifest of that kind is reported as **unread** rather than silently ignored, so you are never shown a clean report that quietly skipped half your project.
 
 ## What it does with what it finds
 
@@ -95,7 +104,13 @@ Put the decision in `.stocktake.toml` at the project root. Every entry needs a r
 
 ```toml
 # .stocktake.toml
+ecosystems = ["python"]          # which readers to run; default: all of them
 exclude = ["vendor", "tests/fixtures"]
+accept_unread = ["go.mod"]       # "I know you cannot read this yet": stops the notice, stays in the JSON report
+environment = "tools/env"        # where this project's Python environment is, if not ./.venv
+
+[cache]
+ttl_hours = 6
 
 [[policy.ignore_advisories]]
 id = "GHSA-xxxx-xxxx-xxxx"
@@ -113,13 +128,14 @@ A Python project that would rather not have another file can use a `[tool.stockt
 ## Commands
 
 ```bash
-stocktake                           # the full report
-stocktake --only vulnerable         # just what must be fixed
-stocktake --only outdated           # what must be fixed, then what is behind
-stocktake --format json             # for another program
-stocktake --refresh                 # ignore the six-hour cache
-stocktake --root ../other-project   # check a different project
-stocktake --all-advisories          # every advisory, not the worst five
+stocktake                              # the full report
+stocktake --only vulnerable            # just what must be fixed
+stocktake --only outdated              # what must be fixed, then what is behind
+stocktake --format json                # for another program
+stocktake --refresh                    # ignore the six-hour cache
+stocktake --root ../other-project      # check a different project
+stocktake --environment /path/to/venv  # resolve ranges against this environment
+stocktake --all-advisories             # every advisory, not the worst five
 ```
 
 `stocktake --help` is the full reference. `python -m stocktake` works too.

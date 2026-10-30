@@ -48,8 +48,9 @@ Every one of these is a state the report must handle, and each has a test:
 - **Partly offline.** Those names are `unknown` with the reason; the rest of the report is normal; exit code unchanged.
 - **Fully offline.** The header carries the reason in brackets, every finding is `unknown`, exit 2, and nothing claims to be clean.
 - **Rate limited.** Distinguished from offline in the note, because the fix is different (set `GITHUB_TOKEN`, or wait).
-- **Policy problems.** Above everything else, because a report whose policy has expired is not trustworthy until that is settled.
-- **Unread manifest.** Named, with what it would take to read it.
+- **Notes.** Above everything else, along with policy problems: anything that changes how much of the report can be trusted. The one that exists today is "no Python environment was found", which means every declared range went unresolved — and it names the flag that fixes it, because a note that only states a problem is half a note.
+- **Policy problems.** Above the findings, because a report whose policy has expired is not trustworthy until that is settled.
+- **Unread manifest.** Named, with what it would take to read it. One the project has accepted in its config is not printed, but still appears in the JSON report: an unchecked surface may stop nagging, never become invisible.
 - **No dependencies found at all.** Said explicitly, because silence looks like success. A project where the scanner found nothing is much more likely to be misconfigured than genuinely dependency-free.
 
 ## Report formats
@@ -99,7 +100,7 @@ Rules the layout follows:
 ## CLI shape
 ```
 stocktake [--root PATH] [--format text|json] [--only all|outdated|vulnerable]
-          [--config PATH] [--refresh] [--all-advisories] [--version]
+          [--config PATH] [--environment PATH] [--refresh] [--all-advisories] [--version]
 ```
 
 Planned (docs/ROADMAP.md): `--format sarif|summary` in M4, and the sub-commands `stocktake init` (write a test file and a starter `.stocktake.toml`) in M2 and `stocktake vendor PATH` (write the single-file copy) in M4.

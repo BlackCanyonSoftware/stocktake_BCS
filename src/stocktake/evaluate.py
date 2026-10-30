@@ -13,7 +13,7 @@ from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 
-from stocktake.models import Advisory, Dep, Finding, Report, normalize
+from stocktake.models import Advisory, Dep, Finding, Report, Unread, normalize
 from stocktake.policy import Policy
 from stocktake.registries import Coordinate, OfflineError, RateLimited, Registries, Versions
 from stocktake.versions import is_newer, update_kind
@@ -96,10 +96,12 @@ def evaluate(
     registries: Registries,
     policy: Policy | None = None,
     today: date | None = None,
-    unread_manifests: Sequence[str] = (),
+    unread: Unread | None = None,
+    notes: Sequence[str] = (),
 ) -> Report:
     """What one run of the check found."""
     today = today or datetime.now(UTC).date()
+    unread = unread or Unread()
     policy = policy or Policy()
     ignored = policy.ignored_advisories(today)
     held = policy.held_packages(today)
@@ -128,5 +130,7 @@ def evaluate(
         policy_problems=policy.problems(today),
         offline=offline,
         today=today.isoformat(),
-        unread_manifests=tuple(unread_manifests),
+        unread_manifests=unread.reported,
+        accepted_unread=unread.accepted,
+        notes=tuple(notes),
     )

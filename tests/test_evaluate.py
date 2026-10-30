@@ -7,7 +7,7 @@ is handed its registries rather than building them.
 from datetime import date
 
 from stocktake.evaluate import evaluate
-from stocktake.models import Advisory, Dep
+from stocktake.models import Advisory, Dep, Unread
 from stocktake.policy import HOLD, IGNORE, Policy, PolicyEntry
 from stocktake.registries import OfflineError
 
@@ -17,7 +17,7 @@ LATER = date(2026, 12, 1)
 EARLIER = date(2026, 10, 1)
 
 
-def judged(tmp_path, deps, net, policy=None, today=TODAY, unread=()):
+def judged(tmp_path, deps, net, policy=None, today=TODAY, unread=None):
     return evaluate(deps, registries(tmp_path, net), policy, today, unread)
 
 
@@ -183,7 +183,7 @@ def test_an_empty_project_is_reported_as_empty_and_not_as_offline(tmp_path):
 
 # ---------- what else the report carries ----------
 def test_unread_manifests_are_carried_through_to_the_report(tmp_path):
-    report = judged(tmp_path, [], FakeNet(), unread=("go.mod",))
+    report = judged(tmp_path, [], FakeNet(), unread=Unread(("go.mod",)))
     assert report.unread_manifests == ("go.mod",)
 
 

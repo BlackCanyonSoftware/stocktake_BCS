@@ -74,6 +74,10 @@ The measure of success is boring: it stays switched on. A checker that fails the
   - Given a project that gains `go.mod`, when the check runs, then it reports that manifest as unread rather than silently ignoring it, and the guard test fails until a reader exists or the file is excluded in config.
 - **US-035** As a maintainer, I am told when the checker misses a pin that is plainly there.
   - Given a Dockerfile containing `name==version`, when the guard test counts those pins independently of the scanner, then the counts match or the test fails.
+- **US-036** As a maintainer, a dependency declared as a range is resolved against my project's environment, or not at all.
+  - Given a `pyproject.toml` declaring `flask>=2` and a project virtual environment holding Flask 3.0.0, when the project is scanned, then Flask is checked at 3.0.0.
+  - Given no environment that can be found, when the project is scanned, then those dependencies are reported as unpinned and the report says no environment was found and how to name one — never resolved against a different environment, such as StockTake's own.
+  - Given `--environment PATH`, when that path holds no environment, then the run stops with exit 2 rather than falling back to a guess.
 
 ### Configuring it per project
 - **US-040** As a maintainer, each project says in one file which ecosystems to read, what to exclude and what has been decided.
@@ -87,7 +91,7 @@ The measure of success is boring: it stays switched on. A checker that fails the
 
 ## Scope (MoSCoW)
 
-**Must have**
+**Must have** (all done as of M1)
 - Python readers: Dockerfile pip pins, `pyproject.toml`, `requirements*.txt`
 - Registries: PyPI, OSV (PyPI ecosystem), GitHub releases
 - Policy in `.stocktake.toml` with reason and expiry; overdue entries fail
@@ -98,7 +102,7 @@ The measure of success is boring: it stays switched on. A checker that fails the
 - Six-hour shared cache; offline means unknown
 
 **Should have**
-- Python lockfile readers: `uv.lock`, `poetry.lock`, `Pipfile.lock`
+- ~~Python lockfile readers: `uv.lock`, `poetry.lock`, `Pipfile.lock`~~ (done, M1, plus `pdm.lock` and `Pipfile`)
 - npm reader plus registry.npmjs.org and OSV `npm`
 - GitHub Actions `uses:` pins; Docker `FROM` tags and digests
 - SARIF output; `--format summary`

@@ -56,16 +56,18 @@ src/stocktake/
   models.py              Dep, Advisory, Finding, Report, normalize(). Frozen dataclasses, no behaviour beyond derived properties.
   versions.py            comparison and update size. Pure.
   advisories.py          merging aliased advisories, ranking them, naming the one version that clears them all. Pure.
-  config.py              .stocktake.toml / [tool.stocktake]: excludes and policy (ecosystems and cache: planned, M1). Pure given text.
+  config.py              .stocktake.toml / [tool.stocktake]: ecosystems, excludes, accepted-unread, environment, cache, policy. Pure given text.
   policy.py              applying and validating policy, including expiry. Pure.
-  scan.py                walking the tree, honouring excludes, dispatching to readers, finding unread manifests.
+  scan.py                walking the tree, honouring excludes, dispatching to readers, finding unread manifests,
+                         and resolving which environment "installed" means (ADR 0006).
   evaluate.py            the judgement: Dep[] + registry answers -> Report. Pure given a Registries.
   readers/
-    base.py              Context, Reader, the reader() registration decorator, READERS
+    base.py              Context, Reader, the reader() registration decorator, READERS, logical_lines
     pep508.py            what a Python requirement looks like, in one place
     dockerfile.py        pip/uv/pipx pins; GitHub release downloads
-    python_project.py    pyproject.toml, at the version actually installed
-    python_locks.py      (planned, M1) requirements*.txt, uv.lock, poetry.lock, Pipfile.lock
+    python_project.py    pyproject.toml and Pipfile — declared ranges, at the version actually installed
+    python_requirements.py  requirements*.txt and constraints*.txt — a resolved set, so the pin wins
+    python_locks.py      uv.lock, pdm.lock, poetry.lock, Pipfile.lock
     npm.py               (planned, M3) package.json and lockfiles
     workflows.py         (planned, M3) .github/workflows/*.yml  uses: owner/repo@ref; FROM image:tag
   registries/
@@ -100,7 +102,7 @@ def read_pip_pins(path: Path, text: str, context: Context) -> Iterable[Dep]:
             yield Dep("PyPI", name, version, context.source(path, number), spec, "image")
 ```
 
-The first argument to `reader()` is the **group**: the name a project enables in its config, so `ecosystems = ["python"]` means the npm reader never runs and the npm registry is never asked anything. Two readers may share a group — the Dockerfile pip reader and the `pyproject.toml` reader are both `python`.
+The first argument to `reader()` is the **group**: the name a project enables in its config, so `ecosystems = ["python"]` means the npm reader never runs and the npm registry is never asked anything. Several readers share a group — the Dockerfile pip reader, the manifest readers and the lock-file readers are all `python`. (Group names are therefore not the same strings as a finding's `ecosystem` field: the whole `python` group produces `PyPI` findings. See [ADR 0002](adr/0002-one-toml-config-file-at-the-project-root.md).)
 
 `Context` carries the project root and an `installed(name)` callable, so a reader can report the version actually present in the environment without importing `importlib.metadata` itself — which is also what lets a test pass a dictionary. `context.source(path, line)` is how a finding names where it came from.
 
@@ -122,7 +124,7 @@ erDiagram
         string version "pinned or installed; null when unpinned"
         string source "path:line"
         string spec "as written, e.g. >=8"
-        string role "image | dev | runtime | ci"
+        string role "runtime | dev | image | ci | locked"
     }
     FINDING {
         string status "vulnerable|yanked|outdated|held|current|unpinned|unknown"
@@ -141,6 +143,9 @@ erDiagram
         bool failed "any fail, or any policy problem"
         string offline "null, or why nothing could be reached"
         string today
+        list unread_manifests "kinds with no reader, unacknowledged"
+        list accepted_unread "the same, accepted in config: not reported, still recorded"
+        list notes "things that affect how much of this report can be trusted"
     }
 ```
 

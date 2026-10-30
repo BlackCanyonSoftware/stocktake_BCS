@@ -20,7 +20,7 @@ See docs/ARCHITECTURE.md for the shape and docs/adr/ for why it is that shape.
 from stocktake._version import __version__
 from stocktake.config import Config, ConfigError, load_config
 from stocktake.evaluate import evaluate
-from stocktake.models import Advisory, Dep, DependencyUpdateAvailable, Finding, Report
+from stocktake.models import Advisory, Dep, DependencyUpdateAvailable, Finding, Report, Unread
 from stocktake.policy import Policy, PolicyEntry
 from stocktake.registries import Cache, OfflineError, RateLimited, Registries
 from stocktake.report import render_json, render_text
@@ -40,6 +40,7 @@ __all__ = [
     "RateLimited",
     "Registries",
     "Report",
+    "Unread",
     "__version__",
     "evaluate",
     "load_config",

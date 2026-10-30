@@ -16,7 +16,7 @@ from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 from stocktake.models import Dep
-from stocktake.readers.base import Context, reader
+from stocktake.readers.base import Context, logical_lines, reader
 from stocktake.readers.pep508 import parse_requirement
 
 # pip options that swallow the next token, which would otherwise be mistaken for a package name.
@@ -54,29 +54,6 @@ RELEASE_DOWNLOAD = re.compile(r"github\.com/([\w.-]+/[\w.-]+)/releases/download/
 def is_dockerfile(path: Path) -> bool:
     name = path.name
     return name in {"Dockerfile", "Containerfile"} or name.startswith("Dockerfile.") or name.endswith(".Dockerfile")
-
-
-def logical_lines(text: str) -> list[tuple[int, str]]:
-    """The file's lines with backslash continuations joined, each paired with the number of its first physical line.
-
-    The line number matters: it is what the report points at, so it has to be where the `RUN` started, not where it happened to end.
-    """
-    joined: list[tuple[int, str]] = []
-    buffer = ""
-    start = 0
-    for number, raw in enumerate(text.splitlines(), 1):
-        line = raw.rstrip()
-        if not buffer:
-            start = number
-        if line.endswith("\\"):
-            buffer += line[:-1] + " "
-            continue
-        buffer += line
-        joined.append((start, buffer))
-        buffer = ""
-    if buffer:
-        joined.append((start, buffer))
-    return joined
 
 
 def pip_requirements(command: str) -> list[tuple[str, str | None, str]]:

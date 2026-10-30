@@ -18,7 +18,7 @@ from stocktake.evaluate import evaluate
 from stocktake.readers import InstalledFn
 from stocktake.registries import Cache, Registries
 from stocktake.report import ONLY_CHOICES, render_json, render_text
-from stocktake.scan import scan, unread_manifests
+from stocktake.scan import NO_ENVIRONMENT_NOTE, find_environment, scan, unread_manifests
 
 OK = 0
 UNSAFE = 1
@@ -55,6 +55,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="all",
         help="narrow the report: everything, what is old or worse, or only what is unsafe",
     )
+    parser.add_argument(
+        "--environment",
+        metavar="PATH",
+        help="the Python environment whose installed versions to use, for dependencies declared as a range "
+        "(default: the project's own .venv, else the environment active in this shell)",
+    )
     parser.add_argument("--refresh", action="store_true", help="ask the registries again instead of using answers cached for six hours")
     parser.add_argument("--all-advisories", action="store_true", help="list every advisory rather than the worst five of each package")
     parser.add_argument("--version", action="version", version=f"stocktake {__version__}")
@@ -84,8 +90,31 @@ def run(
         print(f"stocktake: {exc}", file=sys.stderr)
         return INCOMPLETE
 
-    asking = registries if registries is not None else Registries(Cache(refresh=args.refresh))
-    report = evaluate(scan(project, config, installed), asking, config.policy, today, unread_manifests(project, config))
+    named = args.environment or config.environment
+    chosen = None
+    if named is not None:
+        chosen = Path(named).expanduser()
+        if not chosen.is_absolute():
+            chosen = project / chosen  # a path in a config file means a path in that project
+
+    lookup = installed
+    notes: list[str] = []
+    if lookup is None:
+        environment = find_environment(project, chosen)
+        if chosen is not None and not environment.found:
+            print(f"stocktake: no Python environment found at {chosen}", file=sys.stderr)
+            return INCOMPLETE
+        lookup = environment.version
+        if not environment.found:
+            notes.append(NO_ENVIRONMENT_NOTE)
+
+    deps = scan(project, config, lookup)
+    # Only worth saying when something actually went unresolved because of it. A Dockerfile's unpinned install is about the image, not us.
+    if notes and not any(d.version is None and d.role != "image" for d in deps):
+        notes.clear()
+
+    asking = registries if registries is not None else Registries(Cache(ttl=config.cache_ttl_seconds, refresh=args.refresh))
+    report = evaluate(deps, asking, config.policy, today, unread_manifests(project, config), notes)
     asking.flush()
 
     out(render_json(report) if args.format == "json" else render_text(report, args.only, args.all_advisories))

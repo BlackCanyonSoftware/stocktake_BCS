@@ -6,17 +6,17 @@ The layout is the design (docs/DESIGN.md), so it is asserted rather than left to
 import json
 
 from stocktake.evaluate import evaluate
-from stocktake.models import Dep, Report
+from stocktake.models import Dep, Report, Unread
 from stocktake.report import as_dict, render_json, render_text
 
 from helpers import TODAY, FakeNet, advisory_detail, pin, registries
 
 
-def judged(tmp_path, deps, net, unread=()):
+def judged(tmp_path, deps, net, unread=None):
     return evaluate(deps, registries(tmp_path, net), None, TODAY, unread)
 
 
-def sample(tmp_path, unread=()):
+def sample(tmp_path, unread=None):
     net = FakeNet(
         pypi={"requests": ("2.40.0", []), "pillow": ("12.4.0", []), "numpy": ("2.5.3", [])},
         osv={("requests", "2.34.2"): ["GHSA-aaaa"]},
@@ -112,7 +112,7 @@ def test_being_offline_is_stated_in_the_headline_and_nothing_is_called_clean(tmp
 
 
 def test_an_unread_manifest_is_named_in_the_report(tmp_path):
-    text = render_text(sample(tmp_path, unread=("go.mod",)))
+    text = render_text(sample(tmp_path, unread=Unread(("go.mod",))))
     assert "UNREAD" in text and "go.mod" in text
 
 
@@ -122,7 +122,7 @@ def test_finding_nothing_at_all_is_stated_because_silence_looks_like_success(tmp
 
 
 def test_the_report_is_plain_ascii_with_no_colour_or_box_drawing(tmp_path):
-    text = render_text(sample(tmp_path, unread=("go.mod",)))
+    text = render_text(sample(tmp_path, unread=Unread(("go.mod",))))
     assert text.isascii()
     assert "\x1b" not in text, "no escape codes: this text lands in pytest summaries and CI logs"
 

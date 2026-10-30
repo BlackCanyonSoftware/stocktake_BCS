@@ -1,9 +1,11 @@
-"""Where a project says what to skip and what has been decided: `.stocktake.toml` at its root, or a `[tool.stocktake]` table in
+"""Where a project says what to read, what to skip and what has been decided: `.stocktake.toml` at its root, or a `[tool.stocktake]` table in
 `pyproject.toml` for a Python project that would rather not have another file (docs/adr/0002).
 
-Deliberately small for now. Choosing which ecosystems to read and how long to cache belongs here too and arrives with Milestone 1
-(docs/ROADMAP.md); what matters at this point is that no path belonging to any particular project is written into the source, which is exactly
-what made the original un-reusable.
+The point of this module is that nothing in StockTake's source knows about any particular project. The original's hard-coded exclusion list,
+naming folders that exist in exactly one repository, is what made it impossible to reuse; everything of that kind lives here instead.
+
+Every value is validated when it is read, and a file that cannot be understood is refused rather than quietly replaced by defaults — a policy
+that silently stopped applying would be the one failure a policy file must not have.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from stocktake.policy import Policy, policy_from_toml
+from stocktake.readers import groups as reader_groups
 
 CONFIG_NAME = ".stocktake.toml"
 
@@ -43,6 +46,8 @@ DEFAULT_EXCLUDES: tuple[str, ...] = (
     ".vscode",
 )
 
+DEFAULT_CACHE_TTL_HOURS = 6.0
+
 
 class ConfigError(ValueError):
     """The config file could not be read. Said plainly and at once, rather than guessing at a default."""
@@ -54,18 +59,26 @@ class Config:
 
     policy: Policy = field(default_factory=Policy)
     exclude: tuple[str, ...] = ()  # added to DEFAULT_EXCLUDES, never replacing them
-    source: str | None = None  # the file this came from, so the report can say which one was used
+    ecosystems: tuple[str, ...] | None = None  # which reader groups to run; None means all of them
+    accept_unread: tuple[str, ...] = ()  # manifests the project knows StockTake cannot read, and accepts
+    environment: str | None = None  # the Python environment whose installed versions to use, relative to the project root
+    cache_ttl_hours: float = DEFAULT_CACHE_TTL_HOURS
+    source: str | None = None  # the file this came from, so it can be said which one was used
 
     @property
     def excludes(self) -> tuple[str, ...]:
         return DEFAULT_EXCLUDES + self.exclude
 
+    @property
+    def cache_ttl_seconds(self) -> int:
+        return int(self.cache_ttl_hours * 3600)
+
 
 def excluded(relative_path: str, patterns: Sequence[str]) -> bool:
-    """Whether a path relative to the project root is one the project asked not to scan.
+    """Whether a path relative to the project root matches one of a set of patterns.
 
     A pattern matches either the whole relative path (`tests/fixtures`) or any single segment of it (`.venv`, `*.egg-info`), so the obvious
-    thing to write in a config file is the thing that works.
+    thing to write in a config file is the thing that works. Used for both `exclude` and `accept_unread`.
     """
     segments = relative_path.split("/")
     return any(fnmatch(relative_path, p) or any(fnmatch(segment, p) for segment in segments) for p in patterns)
@@ -81,14 +94,56 @@ def _read_toml(path: Path) -> dict[str, Any]:
         raise ConfigError(f"{path}: is not valid TOML ({exc})") from exc
 
 
+def _string_list(path: Path, table: Mapping[str, Any], key: str) -> tuple[str, ...]:
+    value = table.get(key) or []
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ConfigError(f"{path}: `{key}` must be a list of strings")
+    return tuple(value)
+
+
+def _ecosystems(path: Path, table: Mapping[str, Any]) -> tuple[str, ...] | None:
+    if "ecosystems" not in table:
+        return None  # not mentioned means all of them, which is what a project with no config gets
+    chosen = _string_list(path, table, "ecosystems")
+    known = reader_groups()
+    unknown = [name for name in chosen if name not in known]
+    if unknown:
+        raise ConfigError(f"{path}: unknown ecosystem(s) {', '.join(sorted(unknown))}; this version knows {', '.join(known)}")
+    return chosen
+
+
+def _cache_ttl_hours(path: Path, table: Mapping[str, Any]) -> float:
+    cache = table.get("cache") or {}
+    if not isinstance(cache, Mapping):
+        raise ConfigError(f"{path}: `[cache]` must be a table")
+    hours = cache.get("ttl_hours", DEFAULT_CACHE_TTL_HOURS)
+    if isinstance(hours, bool) or not isinstance(hours, int | float) or hours <= 0:
+        raise ConfigError(f"{path}: `cache.ttl_hours` must be a positive number")
+    return float(hours)
+
+
+def _environment(path: Path, table: Mapping[str, Any]) -> str | None:
+    value = table.get("environment")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ConfigError(f"{path}: `environment` must be a path, as a string")
+    return value
+
+
 def _build(path: Path, table: Mapping[str, Any]) -> Config:
-    exclude = table.get("exclude") or []
-    if not isinstance(exclude, list) or any(not isinstance(item, str) for item in exclude):
-        raise ConfigError(f"{path}: `exclude` must be a list of strings")
     policy = table.get("policy") or {}
     if not isinstance(policy, Mapping):
         raise ConfigError(f"{path}: `[policy]` must be a table")
-    return Config(policy=policy_from_toml(policy), exclude=tuple(exclude), source=str(path))
+    return Config(
+        policy=policy_from_toml(policy),
+        exclude=_string_list(path, table, "exclude"),
+        ecosystems=_ecosystems(path, table),
+        accept_unread=_string_list(path, table, "accept_unread"),
+        environment=_environment(path, table),
+        cache_ttl_hours=_cache_ttl_hours(path, table),
+        source=str(path),
+    )
 
 
 def load_config(root: Path, path: Path | None = None) -> Config:

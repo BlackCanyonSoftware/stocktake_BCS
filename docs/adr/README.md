@@ -7,5 +7,6 @@
 | [0003](0003-readers-and-registry-clients-as-separate-interfaces.md) | Readers and registry clients as separate, narrow interfaces | accepted |
 | [0004](0004-only-unsafe-findings-fail-the-build.md) | Only unsafe findings fail the build | accepted |
 | [0005](0005-installed-package-plus-a-generated-single-file-copy.md) | An installed package, plus a generated single-file copy | accepted |
+| [0006](0006-which-environment-an-installed-version-comes-from.md) | Which environment an installed version comes from | accepted |
 
 One record per significant decision: context, options considered, decision, consequences. A superseded record is kept and marked, never deleted.

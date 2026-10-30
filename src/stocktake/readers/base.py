@@ -66,3 +66,27 @@ def groups() -> tuple[str, ...]:
     """Every group a project could enable, in registration order."""
     seen = dict.fromkeys(r.group for r in READERS)
     return tuple(seen)
+
+
+def logical_lines(text: str) -> list[tuple[int, str]]:
+    """A file's lines with backslash continuations joined, each paired with the number of its first physical line.
+
+    Shared because Dockerfiles and requirements files both use trailing backslashes, and because the line number has to be where the statement
+    *started*: that is what the report points at, not wherever the continuation happened to end.
+    """
+    joined: list[tuple[int, str]] = []
+    buffer = ""
+    start = 0
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.rstrip()
+        if not buffer:
+            start = number
+        if line.endswith("\\"):
+            buffer += line[:-1] + " "
+            continue
+        buffer += line
+        joined.append((start, buffer))
+        buffer = ""
+    if buffer:
+        joined.append((start, buffer))
+    return joined

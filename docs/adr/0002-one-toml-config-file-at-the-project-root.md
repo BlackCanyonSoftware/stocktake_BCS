@@ -23,8 +23,10 @@ Option A, with `pyproject.toml`'s `[tool.stocktake]` accepted as a fallback for 
 
 ```toml
 # .stocktake.toml
-ecosystems = ["python", "containers"]       # readers to run; default: all that find a manifest
-exclude = ["vendor", "tests/fixtures"]      # added to the built-in defaults
+ecosystems = ["python", "binaries"]         # which readers to run; default: all of them
+exclude = ["vendor", "tests/fixtures"]      # added to the built-in defaults, never replacing them
+accept_unread = ["go.mod"]                  # manifests this project knows cannot be read yet
+environment = "tools/env"                   # where its Python environment is, if not ./.venv (ADR 0006)
 
 [cache]
 ttl_hours = 6
@@ -41,6 +43,10 @@ until = 2026-12-01
 ```
 
 `until` is a native TOML date, which `tomllib` returns as a `datetime.date`, so there is nothing to parse and no ambiguity about format. A string is still accepted and parsed as ISO, because people will write one.
+
+A note on one key's name: `ecosystems` lists **reader groups** (`python`, `binaries`, later `npm` and `workflows`), which are not the same strings as a finding's `ecosystem` field (`PyPI`, `GitHub`). A group can cover more than one registry — the Python group reads Dockerfile pins, manifests and lock files, all of which are PyPI. `ecosystems` is kept as the key anyway because it is the word someone reaches for when writing the file, and because it is what the PRD promised; `Reader.group` is the name in the code, and `ARCHITECTURE.md` explains the relationship in one line.
+
+Every value is validated as it is read, and an unknown ecosystem name is refused rather than ignored — a typo that silently switched half the check off would be the worst kind of failure for a file like this.
 
 The policy semantics are unchanged from the original and are not up for renegotiation here: every entry needs a `reason` and an `until`, an entry missing either is a failure, and an entry past its date is a failure. See [ADR 0004](0004-only-unsafe-findings-fail-the-build.md).
 

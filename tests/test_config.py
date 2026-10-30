@@ -24,6 +24,9 @@ def test_a_project_with_no_config_at_all_gets_the_defaults(tmp_path):
     config = load_config(tmp_path)
     assert config.policy.entries == ()
     assert config.exclude == ()
+    assert config.ecosystems is None, "not choosing means all of them"
+    assert config.accept_unread == ()
+    assert config.cache_ttl_hours == 6.0
     assert config.source is None
     assert config.excludes == DEFAULT_EXCLUDES
 
@@ -93,6 +96,74 @@ def test_a_policy_that_is_not_a_table_is_refused(tmp_path):
 def test_a_named_config_file_that_does_not_exist_is_refused_rather_than_ignored(tmp_path):
     with pytest.raises(ConfigError, match="could not be read"):
         load_config(tmp_path, tmp_path / "absent.toml")
+
+
+# ---------- choosing what to read ----------
+def test_a_project_can_name_the_ecosystems_it_wants_read(tmp_path):
+    (tmp_path / ".stocktake.toml").write_text('ecosystems = ["python"]\n', encoding="utf-8")
+    assert load_config(tmp_path).ecosystems == ("python",)
+
+
+def test_naming_an_ecosystem_this_version_does_not_know_is_refused_rather_than_ignored(tmp_path):
+    # A typo that silently disabled half the check would be the worst kind of failure here.
+    (tmp_path / ".stocktake.toml").write_text('ecosystems = ["pythonn"]\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="unknown ecosystem"):
+        load_config(tmp_path)
+
+
+def test_the_refusal_says_which_ecosystems_do_exist(tmp_path):
+    (tmp_path / ".stocktake.toml").write_text('ecosystems = ["rust"]\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="python"):
+        load_config(tmp_path)
+
+
+def test_enabling_nothing_is_allowed_and_is_not_the_same_as_saying_nothing(tmp_path):
+    (tmp_path / ".stocktake.toml").write_text("ecosystems = []\n", encoding="utf-8")
+    assert load_config(tmp_path).ecosystems == ()
+
+
+# ---------- the cache ----------
+def test_the_cache_lifetime_can_be_set_in_hours(tmp_path):
+    (tmp_path / ".stocktake.toml").write_text("[cache]\nttl_hours = 0.5\n", encoding="utf-8")
+    config = load_config(tmp_path)
+    assert config.cache_ttl_hours == 0.5
+    assert config.cache_ttl_seconds == 1800
+
+
+@pytest.mark.parametrize("value", ["0", "-1", '"six"', "true"])
+def test_a_cache_lifetime_that_is_not_a_positive_number_is_refused(value, tmp_path):
+    (tmp_path / ".stocktake.toml").write_text(f"[cache]\nttl_hours = {value}\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="must be a positive number"):
+        load_config(tmp_path)
+
+
+def test_a_cache_section_of_the_wrong_shape_is_refused(tmp_path):
+    (tmp_path / ".stocktake.toml").write_text('cache = "none"\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"`\[cache\]` must be a table"):
+        load_config(tmp_path)
+
+
+# ---------- accepting what cannot be read ----------
+def test_a_project_can_accept_manifests_it_knows_cannot_be_read(tmp_path):
+    (tmp_path / ".stocktake.toml").write_text('accept_unread = ["go.mod", "vendor/*"]\n', encoding="utf-8")
+    assert load_config(tmp_path).accept_unread == ("go.mod", "vendor/*")
+
+
+def test_a_project_can_say_where_its_python_environment_is(tmp_path):
+    (tmp_path / ".stocktake.toml").write_text('environment = "tools/env"\n', encoding="utf-8")
+    assert load_config(tmp_path).environment == "tools/env"
+
+
+def test_an_environment_that_is_not_a_path_is_refused(tmp_path):
+    (tmp_path / ".stocktake.toml").write_text("environment = 3\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="`environment` must be a path"):
+        load_config(tmp_path)
+
+
+def test_an_accept_unread_list_of_the_wrong_shape_is_refused(tmp_path):
+    (tmp_path / ".stocktake.toml").write_text('accept_unread = "go.mod"\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="`accept_unread` must be a list of strings"):
+        load_config(tmp_path)
 
 
 # ---------- the matching itself ----------

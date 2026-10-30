@@ -35,7 +35,7 @@ def test_every_registered_reader_belongs_to_a_group_and_describes_itself():
 
 def test_this_project_has_no_manifest_of_a_kind_it_cannot_read_itself():
     """If this fails, StockTake has grown a dependency manifest it would not report on. Teach it to read that kind, or exclude it in config."""
-    assert unread_manifests(ROOT, load_config(ROOT)) == []
+    assert unread_manifests(ROOT, load_config(ROOT)).reported == ()
 
 
 def test_this_projects_own_dependencies_are_found_at_all():
@@ -73,7 +73,7 @@ def test_this_projects_own_dependencies_have_no_known_vulnerabilities():
 
     config = load_config(ROOT)
     asking = Registries()
-    report = evaluate(scan(ROOT, config), asking, config.policy, unread_manifests=unread_manifests(ROOT, config))
+    report = evaluate(scan(ROOT, config), asking, config.policy, unread=unread_manifests(ROOT, config))
     asking.flush()
 
     if report.offline:

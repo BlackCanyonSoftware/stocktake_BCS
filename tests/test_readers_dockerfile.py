@@ -7,11 +7,10 @@ clean-looking report that quietly missed a pin is the most dangerous way for thi
 
 import re
 
-from stocktake.readers.base import Context
+from stocktake.readers.base import Context, logical_lines
 from stocktake.readers.dockerfile import (
     github_downloads,
     is_dockerfile,
-    logical_lines,
     pip_requirements,
     read_pip_pins,
     read_release_downloads,

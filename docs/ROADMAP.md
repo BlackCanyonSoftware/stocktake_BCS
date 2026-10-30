@@ -29,10 +29,10 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 
 **Verified.** 148 tests pass (including the live network check); `ruff check`, `ruff format --check` and `mypy --strict` clean; the scanner reproduces the original's output on `ai-suite`'s real manifests exactly — 40 dependencies, identical names, versions, sources and specifiers. CI itself is not verified until the branch is pushed.
 
-### M1 — Config, excludes and the reader interface · size S · `planned`
+### M1 — Config, excludes and the reader interface · size S · `done` (2026-10-30)
 **Goal.** Nothing in the code knows about any particular project.
 
-**Scope.** US-031, US-034, US-040, US-041
+**Scope.** US-031, US-034, US-036, US-040, US-041
 - `.stocktake.toml` loader: `ecosystems`, `exclude`, `cache.ttl_hours`, `[policy]`, with documented defaults and a clear error on a malformed file.
 - Remove the hard-coded exclude list; defaults become the obvious ones (`.git`, `.venv`, `node_modules`, `__pycache__`, `dist`, `build`, `*.egg-info`).
 - Formalise the `Reader` protocol and the reader registry; readers run only when their ecosystem is enabled.
@@ -41,6 +41,17 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 - One guard test per reader: an independent count of what the fixture declares against what the reader found.
 
 **Exit criteria.** `stocktake` run against this repo, against a copy of `ai-suite` and against a Node project each read the right things and nothing else; a config naming only `python` makes no npm request (asserted by the fake network recording its calls).
+
+**What actually shipped**, where it differs from the plan above:
+- 221 tests, up from 148. Seven readers registered across two ecosystems.
+- Two extra readers beyond the list: `pdm.lock` (the same shape as `uv.lock`, so free) and `Pipfile` itself. The Pipfile one is not padding: without it, a pipenv project would have been told its `Pipfile` was an unreadable manifest while its lock file was being read perfectly well — a false alarm, and the alternative was asking every pipenv project to write a self-exclusion.
+- `accept_unread` and `environment` are config keys the plan did not name. The first is how a project acknowledges an unread manifest; the second came out of the bug below.
+- **A correctness bug found during verification, and fixed: [ADR 0006](adr/0006-which-environment-an-installed-version-comes-from.md).** Milestone 0 inherited "ask whichever interpreter is running StockTake" for resolving declared ranges. As a standalone tool that is wrong — a demo project was reported as having `ruff 0.17.3` because that is what was in *StockTake's* virtual environment, and `uv tool install stocktake`, the recommended path, would have done the same to every project. Ranges are now resolved against the project's own environment, with `--environment PATH` to name one and an explicit note in the report when none can be found.
+- `Report` gained a general `notes` channel for anything that affects how much of a report can be trusted, rendered above the findings.
+- `Dep.role` gained the value `locked`, for a lock-file entry whose group the format does not record.
+- The exit criterion's "against a Node project" could not be met and is not claimed: there is no npm reader until M3. The equivalent was asserted instead — a config naming only `python` makes no request to the GitHub releases API, proven by the fake network recording its calls.
+
+**Verified.** 221 tests pass on 3.11 and 3.13; `ruff check`, `ruff format --check` and `mypy --strict` clean. The scanner still reproduces the original's output on `ai-suite`'s real manifests exactly (40 dependencies, no differences), so the M0 port fidelity is intact. Run against a project with `uv.lock` + `requirements-dev.txt`, all three new reader kinds produced correct findings against the real registries. Run against the author's brand-kit repository, pointed at its interpreter, it reported 58 advisories against the installed Pillow 11.2.1 and one against fonttools 4.58.0 — the first real finding in one of the author's own projects. CI still not verified (nothing pushed).
 
 ## Next
 
@@ -90,10 +101,12 @@ Print the exact edit that would fix each finding, with a changelog or compare li
 ## Tech debt and known gaps
 Every `TODO` in the code gets a line here. There are none.
 
-From M0:
 - **This repository's own GitHub Actions pins are not checked.** `.github/workflows/ci.yml` pins `actions/checkout@v7` and `actions/setup-python@v7` by tag, and nothing watches them. Tracked in M3, which adds the reader and the manifest kind together.
-- **`role` is a bare string**, with the values `runtime`, `dev`, `image` and (from M3) `ci`. It wants to be an enum once M3 settles what the values actually are.
-- **The `binaries` group is enabled by name only.** Until M1's config lands, every reader runs on every project; `scan(groups=[...])` exists and is tested but nothing in the CLI passes it yet.
+- **`role` is a bare string**, now with five values (`runtime`, `dev`, `image`, `locked`, and `ci` from M3). It wants to be an enum once M3 settles what the values actually are.
+- **A `requirements.txt`'s role is guessed from its filename.** `requirements-dev.txt` is treated as dev, `requirements.txt` as runtime. The format offers no other hint. Informational only: role changes nothing about whether a finding fails.
+- **Lock-file entries carry no line number**, only the file, because the TOML and JSON parsers do not report one. Findable by searching the text for the name, which is fragile; not worth it yet.
+- **`dist-info` directory names are trusted** for installed versions rather than the metadata inside them (ADR 0006). The documented layout, and what makes the lookup free.
+- **A project whose environment is in none of the usual places needs `--environment` passing once.** The brand-kit repository is this case. A config entry makes it permanent, but it has to be discovered first; the report's note is what makes that discoverable.
 
 Carried over from the `ai-suite` original, to be addressed as noted:
 - **GitHub release downloads get no advisory check.** OSV has no good key for a release binary. The writeup's idea of mapping to the Go or Cargo module it was built from is unproven. Tracked for M6; until then the docs say plainly that these get "newest tag" only.
