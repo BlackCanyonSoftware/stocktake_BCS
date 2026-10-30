@@ -1,0 +1,8 @@
+# One line ending in the repository, whatever the checkout platform does.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.gz binary
+*.zip binary

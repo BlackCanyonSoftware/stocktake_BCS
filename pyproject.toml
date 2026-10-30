@@ -1,0 +1,125 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "stocktake"
+dynamic = ["version"]
+description = "A stock-take of what your project depends on: newer releases and known advisories, checked as part of your own test suite."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "BlackCanyonSoftware" }]
+keywords = ["dependencies", "security", "advisories", "osv", "pytest", "supply-chain", "vulnerabilities"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
+
+# Deliberately empty, and it stays that way: see docs/adr/0001.
+# `packaging` is used for version comparison when it happens to be importable
+# and falls back to a built-in comparison when it is not. It is not a dependency.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.14", "mypy>=1.18"]
+
+[project.urls]
+Homepage = "https://github.com/BlackCanyonSoftware/stocktake_BCS"
+Source = "https://github.com/BlackCanyonSoftware/stocktake_BCS"
+Issues = "https://github.com/BlackCanyonSoftware/stocktake_BCS/issues"
+
+[project.scripts]
+stocktake = "stocktake.cli:main"
+
+# The pytest11 entry point arrives with the plugin itself in Milestone 2.
+# Declaring it before stocktake/pytest_plugin.py exists breaks pytest collection
+# for anyone who installs the package.
+
+[tool.hatch.version]
+# One source of truth for the version; the User-Agent reads the same constant.
+path = "src/stocktake/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/stocktake"]
+
+[tool.ruff]
+line-length = 140
+target-version = "py311"
+src = ["src", "tests"]
+# Snippets in the docs are illustrative prose, not code to be reformatted.
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "W",
+    "F",    # pyflakes
+    "I",    # import order
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "BLE",  # no blind excepts, except where one is argued for in a comment
+    "S",    # bandit: this is a security-adjacent tool, so it holds itself to it
+    "C4",   # comprehensions
+    "SIM",  # simplify
+    "RET",  # return
+    "PIE",
+    "PTH",  # use pathlib
+    "RUF",
+    "ARG",  # unused arguments
+    "TID",  # tidy imports
+]
+ignore = [
+    "E501",    # line length is the formatter's job
+    "RUF001",  # ambiguous unicode in prose strings
+    "SIM108",  # ternary instead of if/else is not always clearer
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert (that is the job), and hand stub callables to code that takes a callable.
+"tests/*" = ["S101", "ARG001", "ARG002", "ARG005", "B011"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["stocktake"]
+known-local-folder = ["helpers"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+
+[tool.mypy]
+python_version = "3.11"
+# src only, and strictly. The tests build deliberately partial fakes and assert on
+# loosely typed registry JSON; type-checking them strictly costs more than it finds.
+# They are covered by ruff and by running.
+files = ["src"]
+strict = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+# `packaging` is an optional import that may legitimately be absent (ADR 0001).
+module = ["packaging.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-q --strict-markers --strict-config"
+markers = [
+    "network: asks the real registries; skipped, never failed, when they cannot be reached",
+]
+filterwarnings = [
+    "error",
+    # The one warning the tool raises on purpose, to surface outdated pins in the summary.
+    "always::stocktake.models.DependencyUpdateAvailable",
+]

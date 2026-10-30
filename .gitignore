@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.env
+
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# StockTake's own cache, in case someone points STOCKTAKE_CACHE at the repo.
+.stocktake-cache.json
+
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
