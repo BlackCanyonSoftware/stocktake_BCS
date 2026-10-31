@@ -1,0 +1,1 @@
+Ground truth, decided before the run: lodash 4.17.15 vulnerable in package.json AND package-lock.json (two findings), actions/checkout@v2 outdated; exit 1. Observed: exactly that; lodash 6 advisories, equal to a direct OSV query and to `npm audit --package-lock-only`. Also used for `stocktake vendor` (no Python in the project).

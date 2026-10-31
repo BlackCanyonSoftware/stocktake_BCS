@@ -1,0 +1,1 @@
+Ground truth, decided before the run: 2 vulnerable (pillow 9.0.0, requests 2.19.1), exit 1. Observed: 2 vulnerable, 52 and 5 advisories, exit 1. Adding `stocktake = true` under [tool.pytest.ini_options] makes pytest fail with exit 1; STOCKTAKE_OFFLINE=1 gives 1 passed, 1 skipped, exit 0.

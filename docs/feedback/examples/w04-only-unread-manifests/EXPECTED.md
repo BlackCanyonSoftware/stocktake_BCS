@@ -1,0 +1,1 @@
+Ground truth, decided before the run: nothing can be read (no reader for go.mod or pnpm-lock.yaml), so the project was NOT checked. Observed: '0 checked', both files listed under UNREAD, exit 0. The question this fixture asks is whether exit 0 is the right answer.
