@@ -1,0 +1,15 @@
+# comment line
+--index-url https://pypi.org/simple
+-r other.txt
+Flask_SQLAlchemy==3.0.0
+requests[security]==2.20.0
+pyyaml==5.3 ; python_version >= "3.8"
+Jinja2==2.11.2 \
+    --hash=sha256:aaaa \
+    --hash=sha256:bbbb
+six===1.15.0
+attrs==21.*
+mypkg @ https://example.com/mypkg-1.0.tar.gz
+git+https://github.com/psf/requests.git@v2.0.0#egg=requests2
+-e .
+click==8.1.7  # trailing comment

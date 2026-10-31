@@ -1,0 +1,4 @@
+[[policy.ignore_advisories]]
+id = "GHSA-6757-jp84-gxfx"
+reason = "only one of two"
+until = 2027-01-01

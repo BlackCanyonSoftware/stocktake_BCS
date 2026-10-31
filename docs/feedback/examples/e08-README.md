@@ -1,0 +1,1 @@
+e08a empty reqs: say no dependencies found. e08b/c malformed: clear error, not traceback. e08d garbage: skip garbage, find six. e08e: no manifest says so. e08f binary: no traceback. e08h unknown ecosystem refused exit 2. e08i bad toml exit 2. e08j empty lock. e08k utf-16 reqs: six found or clear complaint.

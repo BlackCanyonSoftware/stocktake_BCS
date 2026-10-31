@@ -1,0 +1,16 @@
+accept_unread = ["go.mod"]
+
+[[policy.ignore_advisories]]
+id = "GHSA-6757-jp84-gxfx"
+reason = "test"
+until = 2026-10-01
+
+[[policy.ignore_advisories]]
+id = "GHSA-8q59-q68h-6hv4"
+reason = "test"
+until = 2026-10-01
+
+[[policy.hold_back]]
+package = "six"
+reason = "held for test"
+until = 2026-10-01

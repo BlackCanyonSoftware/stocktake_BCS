@@ -1,0 +1,1 @@
+package.json lodash ~4.17.15 after `npm install --ignore-scripts` (node_modules not stored). Resolves to the installed 4.17.23: expect vulnerable in package.json and package-lock.json (2 findings), exit 1.

@@ -1,0 +1,1 @@
+package.json: lodash 4.17.15 vulnerable, left-pad 1.3.0 current, minimist 1.2.8 current, express 4.17.1 vulnerable (+outdated). package-lock.json (v3): same 4. Expected 2 vulnerable packages x 2 files = 4 vulnerable findings, 4 current, exit 1.

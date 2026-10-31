@@ -1,0 +1,1 @@
+checkout@v4 is a moving tag, newest is v7: outdated (major). setup-python@v7.0.0 outdated (minor, 7.1.0). checkout@<sha> # v4.1.1 outdated (major). jq 1.6 (tag jq-1.6, prefixed) outdated vs 1.8.2; yq 4.40.5 (tag v4.40.5) outdated. Dockerfile pip: pyyaml 5.3 vulnerable, six 1.15.0 outdated. Total: 1 vulnerable, 6 outdated (7 if the prefixed jq tag is understood), exit 1.

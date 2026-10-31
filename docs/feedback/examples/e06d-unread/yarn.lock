@@ -1,0 +1,4 @@
+# yarn lockfile v1
+
+lodash@^4.17.15:
+  version "4.17.15"

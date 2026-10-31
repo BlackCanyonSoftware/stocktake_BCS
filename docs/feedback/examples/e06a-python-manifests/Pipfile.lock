@@ -1,0 +1,13 @@
+{
+  "_meta": {},
+  "default": {
+    "pyyaml": {
+      "version": "==5.3"
+    }
+  },
+  "develop": {
+    "six": {
+      "version": "==1.15.0"
+    }
+  }
+}

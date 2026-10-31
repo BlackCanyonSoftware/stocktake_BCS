@@ -1,0 +1,1 @@
+Ranges: six>=1.10 (x2) and bare pyyaml. With --environment pointing at a venv holding six 1.16.0: 2 outdated (six 1.16.0 -> 1.17.0), 1 unpinned (pyyaml not installed). Without: 3 unpinned plus a note.

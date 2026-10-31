@@ -1,0 +1,1 @@
+[tool.stocktake] ecosystems=["npm"] in pyproject.toml alone: 0 checked. With the .stocktake.toml (ecosystems=[python]) present, that file wins and 4 pins are checked; p2.toml passed via --config is read as a flat file so its [tool.stocktake] table is ignored.

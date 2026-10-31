@@ -1,0 +1,5 @@
+[packages]
+pyyaml = "==5.3"
+
+[dev-packages]
+six = "==1.15.0"

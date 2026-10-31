@@ -1,0 +1,18 @@
+[[package]]
+name = "pyyaml"
+version = "5.3"
+description = "x"
+optional = false
+python-versions = "*"
+
+[[package]]
+name = "six"
+version = "1.15.0"
+description = "x"
+optional = false
+python-versions = "*"
+
+[metadata]
+lock-version = "2.0"
+python-versions = "^3.11"
+content-hash = "x"

@@ -1,0 +1,3 @@
+ecosystems=["python"]
+[cache]
+ttl_hours = 1

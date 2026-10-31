@@ -1,0 +1,10 @@
+[project]
+name = "multi"
+version = "0.1.0"
+dependencies = ["pyyaml==5.3"]
+
+[project.optional-dependencies]
+extra = ["six==1.15.0"]
+
+[dependency-groups]
+dev = ["pyyaml==5.3"]

@@ -1,0 +1,2 @@
+[tool.stocktake]
+ecosystems = ["npm"]

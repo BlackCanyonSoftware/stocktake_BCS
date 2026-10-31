@@ -1,0 +1,1 @@
+Ideal tool: 3 conflicts (requests twice with different pins; pandas>2,<1 impossible; flask 3.0.0 needs werkzeug>=3.0 but 2.0.0 pinned). StockTake does not claim to detect these: any conflict finding is a bonus, not reporting them is expected (not-claimed).

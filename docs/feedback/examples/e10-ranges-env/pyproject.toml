@@ -1,0 +1,4 @@
+[project]
+name="r"
+version="0"
+dependencies=["six>=1.10"]

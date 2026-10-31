@@ -1,0 +1,1 @@
+No reader exists for go.mod (gin 1.6.0 is vulnerable), Cargo.toml, yarn.lock, environment.yml. Expected: reported as UNREAD, not silently clean; ideal tool would find gin 1.6.0 vulnerable. exit 0 (documented) or 2.
