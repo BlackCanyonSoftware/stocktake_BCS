@@ -11,6 +11,26 @@ from stocktake.readers import (  # noqa: F401  (imported for the registration si
     python_requirements,
     workflows,
 )
-from stocktake.readers.base import READERS, Context, InstalledFn, Reader, groups, logical_lines, reader
+from stocktake.readers.base import (
+    READERS,
+    Context,
+    InstalledFn,
+    Reader,
+    UnreadableManifest,
+    groups,
+    logical_lines,
+    read_manifest,
+    reader,
+)
 
-__all__ = ["READERS", "Context", "InstalledFn", "Reader", "groups", "logical_lines", "reader"]
+__all__ = [
+    "READERS",
+    "Context",
+    "InstalledFn",
+    "Reader",
+    "UnreadableManifest",
+    "groups",
+    "logical_lines",
+    "read_manifest",
+    "reader",
+]

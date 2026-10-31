@@ -13,7 +13,7 @@ from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 
-from stocktake.models import Advisory, Dep, Finding, Report, Unread, normalize
+from stocktake.models import Advisory, Dep, Finding, Report, Unread, Unreadable, normalize
 from stocktake.policy import Policy
 from stocktake.registries import Coordinate, OfflineError, RateLimited, Registries, Versions
 from stocktake.versions import is_newer, update_kind
@@ -72,11 +72,18 @@ def _judge(dep: Dep, answer: Answer, advisories: tuple[Advisory, ...], held: fro
         return Finding(dep, "unknown", "info", note="not found on the registry")
     if isinstance(answer, str):
         return Finding(dep, "unknown", "info", note=answer)
+    # Asked before the advisories are weighed, not after. Both are reasons to fail, so whichever is reported the build stops either way — but
+    # the fact was being lost: the status went to `vulnerable`, nothing else recorded the withdrawal, and the headline then said
+    # "0 withdrawn" about a project with a withdrawn release in it.
+    withdrawn = dep.version in answer.withdrawn
     if advisories:
         plural = "advisory" if len(advisories) == 1 else "advisories"
-        return Finding(dep, "vulnerable", "fail", answer.latest, advisories=advisories, note=f"{len(advisories)} known {plural}")
-    if dep.version in answer.withdrawn:
-        return Finding(dep, "yanked", "fail", answer.latest, note="this release was withdrawn by its author")
+        note = f"{len(advisories)} known {plural}"
+        if withdrawn:
+            note += "; this release was also withdrawn by its author"
+        return Finding(dep, "vulnerable", "fail", answer.latest, advisories=advisories, note=note, withdrawn=withdrawn)
+    if withdrawn:
+        return Finding(dep, "yanked", "fail", answer.latest, note="this release was withdrawn by its author", withdrawn=True)
     if is_newer(answer.latest, dep.version, dep.ecosystem, moving=dep.moving):
         kind = update_kind(answer.latest, dep.version)
         if normalize(dep.name) in held:
@@ -100,6 +107,7 @@ def evaluate(
     unread: Unread | None = None,
     notes: Sequence[str] = (),
     config_source: str | None = None,
+    unreadable: Sequence[Unreadable] = (),
 ) -> Report:
     """What one run of the check found."""
     today = today or datetime.now(UTC).date()
@@ -136,4 +144,5 @@ def evaluate(
         accepted_unread=unread.accepted,
         notes=tuple(notes),
         config_source=config_source,
+        unreadable=tuple(unreadable),
     )

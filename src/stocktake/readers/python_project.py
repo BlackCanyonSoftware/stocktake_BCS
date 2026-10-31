@@ -14,7 +14,7 @@ from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 from stocktake.models import Dep
-from stocktake.readers.base import Context, reader
+from stocktake.readers.base import Context, UnreadableManifest, reader
 from stocktake.readers.pep508 import parse_requirement
 
 
@@ -53,8 +53,8 @@ def read_pyproject(path: Path, text: str, context: Context) -> Iterable[Dep]:
     """Dependencies declared in pyproject.toml, at the version installed in this environment."""
     try:
         data = tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
-        return  # a broken pyproject.toml is that project's problem to report, not this tool's to crash on
+    except tomllib.TOMLDecodeError as exc:
+        raise UnreadableManifest(f"is not valid TOML ({exc})") from exc
     for entry, role in _declared(data):
         parsed = parse_requirement(entry)
         if parsed is None:
@@ -81,8 +81,8 @@ def read_pipfile(path: Path, text: str, context: Context) -> Iterable[Dep]:
     """
     try:
         data = tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
-        return
+    except tomllib.TOMLDecodeError as exc:
+        raise UnreadableManifest(f"is not valid TOML ({exc})") from exc
     for section, role in (("packages", "runtime"), ("dev-packages", "dev")):
         entries = data.get(section)
         if not isinstance(entries, dict):

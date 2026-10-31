@@ -1,20 +1,22 @@
 # StockTake: handoff
 
 ## Current state
-**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why). 413 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. The next session starts Milestone 6, or the two decisions M5 left to the owner.
+**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1**: the response to the first outside trial report. 477 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. The next session starts Milestone 6, or the one decision M5 left to the owner, or the next trial report.
 
-**It has been run against five real projects** — about two thousand dependencies, Python, Node and mixed — and found vulnerable dependencies in every one. Three of its own bugs were found that way and only that way.
+**It has been run against nine real projects** — well over two thousand dependencies, Python, Node and mixed — and found vulnerable dependencies in nearly every one. Three of its own bugs were found that way and only that way, and a tenth project ([Can-AI](feedback/2026-10-30-claude-code-session.md)) was handed it cold and wrote down what happened, which found three more.
 
 It reads **four ecosystems**: `python` (seven manifest kinds), `npm` (`package.json`, `package-lock.json`, `node_modules`), `workflows` (GitHub Actions pins) and `binaries` (GitHub release downloads). It reports as text, JSON, SARIF or one line. It drops into another project's pytest suite in one line, writes its own test file with `stocktake init`, and writes itself as one dependency-free file with `stocktake vendor`.
 
 **It checks itself through its own plugin.** `stocktake = true` is in this repository's `pyproject.toml`, so every `pytest` run here exercises the thing other projects will use. If the plugin breaks, this suite notices first.
 
-Pushed through `1b01058`, and CI passes on Windows and Ubuntu across Python 3.11 and 3.13. See "Pushed, and CI is verified" below for what that settled. One commit after it is local, waiting to be pushed.
+Pushed through `1b01058`, and CI passes on Windows and Ubuntu across Python 3.11 and 3.13. See "Pushed, and CI is verified" below for what that settled. Several commits after it are local, waiting to be pushed.
+
+**A run can now exit 2 where it used to exit 0.** A dependency file StockTake cannot read makes the whole run incomplete ([ADR 0009](adr/0009-an-unread-file-makes-the-run-incomplete.md)). That is a behaviour change for anyone already running it, and the escape hatch for a file that is not really a manifest is `exclude`, which the message names.
 
 ```bash
 py -3.11 -m venv .venv
 ./.venv/Scripts/python -m pip install -e ".[dev]"   # .venv/bin/python on macOS and Linux
-./.venv/Scripts/python -m pytest                    # 413 tests, ~6s (includes the live check, via the plugin)
+./.venv/Scripts/python -m pytest                    # 477 tests, ~7s (includes the live check, via the plugin)
 ./.venv/Scripts/stocktake vendor vendored/          # after ANY change to the core, or a test fails
 ./.venv/Scripts/python -m stocktake                 # check this project itself
 ```
@@ -47,12 +49,13 @@ The owner pushed through `1b01058` on 2026-10-30, and everything that could not 
 **One thing that first run showed:** the code-scanning job installed `-e .` without the dev extra, so this project's own dev dependencies had nothing to resolve against and arrived in the security tab as four `unpinned` notes about its own tooling — correct, and useless. The job now installs `.[dev]`. Four open alerts from that first run will be superseded by the next one.
 
 ## Work in progress
-None. M0 to M5 are complete; M6 has not been started.
+None. M0 to M5 and M5.1 are complete; M6 has not been started.
 
 ## Next steps
 1. **One decision the owner has to make**, recorded in [ROADMAP.md](ROADMAP.md) under M5 and in the PRD's open questions: whether to publish to PyPI. The metadata is ready and the name was free on 2026-10-30. Not a coding task.
 2. **Adoption in the owner's other projects belongs to those projects' own sessions**, not to this one. They have been *read* — which is how three bugs were found — and nothing in any of them has been changed. The findings for each are listed further down, so a session working in one of them can start from a concrete list.
 3. **Milestone 6** when there is appetite: container tags and the YAML lock files, both carried over from M3 with reasons.
+4. **The next trial report.** The owner intends to hand StockTake to several more of their projects the way Can-AI was handed it, and to bring each report back here. The pattern to repeat: commit the report unchanged first, reproduce its headline findings before touching anything, then act. Everything from the first report that was deliberately **not** done is in [ROADMAP.md](ROADMAP.md) under "From the Can-AI trial", with the reason for each — read that before re-deciding any of it. The format reports follow is [feedback/README.md](feedback/README.md).
 
 **Known findings in the author's own repositories. Nothing was changed in any of them, and none of this has been acted on.**
 - `Brand Logos`: installed Pillow 11.2.1 has 58 advisories (5 critical), fonttools 4.58.0 has 1. Both declared as ranges, so the pins are not wrong — the installed versions are old. Its CI pins `actions/checkout@v4` and `actions/setup-python@v5`, three majors behind. Needs `--environment` (it installs into the global Python).
@@ -138,6 +141,15 @@ The owner has about ten repositories available for this, and the list is the mos
 In [PRD.md](PRD.md) under "Open questions". None block M1. The one worth deciding soonest: whether to publish `stocktake` to PyPI now (the name is free as of 2026-10-29) or wait until there are two real consumers.
 
 ## Session log
+### Session 9 — 2026-10-30
+Acted on the first outside trial report. Can-AI was handed StockTake cold and ran it against ~30 purpose-built fixtures and a 665-dependency project, with ground truth written down before the run and a logging proxy to check what left the machine. It found **no false positives anywhere** and exact agreement with OSV and `npm audit` — and three ways StockTake could report a clean project it had not checked. The report is committed unchanged as `319a25e`, before any of it was acted on, and all three headline findings were reproduced locally first.
+
+The fix is [ADR 0009](adr/0009-an-unread-file-makes-the-run-incomplete.md): a file a reader claimed and failed on makes the whole run incomplete. Readers raise `UnreadableManifest` instead of returning nothing; `read_manifest` decodes by byte-order mark, so a UTF-16 `requirements.txt` is now read rather than silently reported as an empty project; undecodable bytes and NUL-bearing text are refused. `Report.complete`, exit 2 (which outranks exit 1), an `UNREADABLE` section, a JSON `complete` field, SARIF `executionSuccessful: false`, and a pytest item that fails rather than skips. `--only` cannot narrow it away.
+
+Also from the report: the one-line summary no longer says "nothing unsafe" about dependencies it never resolved; an unknown config key is refused with a suggestion (`excludes` was silently a file with no excludes); a withdrawn release keeps that fact when it also has an advisory, so the headline stopped saying "0 withdrawn" about a project with one; `--only` narrows JSON; vulnerable rows come worst-severity first; `-r`/`-c` includes are followed where the walk would not reach them; `jq-1.6` is recognised as a version; JSON gained `schema_version` and `complete`; `vendor NAME` no longer writes a Python module into a file called `NAME`; and five documentation errors the report found by following the README on a clean Ubuntu 24.04 machine are corrected.
+
+413 → 477 tests, all passing including the live one. Lint, format and strict mypy clean; `vendored/` regenerated. Verified by re-running all 23 fixture projects (every one now behaves as its `EXPECTED.md` says, or better) and against four of the owner's own repositories read-only — nothing in any of them was changed. Nine items from the report were deliberately not done; each is in the roadmap with its reason. Committed locally; not pushed.
+
 ### Session 8 — 2026-10-30
 Pushed by the owner through `1b01058`, which verified CI on Windows and Ubuntu across 3.11 and 3.13 and confirmed GitHub accepts the SARIF. That first code-scanning run showed the job was installing without the dev extra and raising four `unpinned` notes about StockTake's own tooling; fixed. The README was rewritten as the adoption instruction set after the owner asked for it to serve that purpose — its first command did not work (`pip install stocktake` fails, nothing is published) and a claim about `setup.cfg` was wrong; both corrected and every command in it verified against a scratch project. The logo landed last, through a new brand-kit job rather than a guess.
 

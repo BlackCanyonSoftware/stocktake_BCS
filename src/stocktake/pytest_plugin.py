@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 
-from stocktake.check import failure_text, run_check, skip_reason, update_warning
+from stocktake.check import failure_text, incomplete_text, run_check, skip_reason, update_warning
 from stocktake.config import ConfigError
 from stocktake.models import DependencyUpdateAvailable
 
@@ -42,6 +42,10 @@ def assert_dependencies_are_safe(root: Path | str | None = None, **kwargs: Any) 
     Fails on anything unsafe, warns in the test summary on anything merely old, and skips — rather than failing — when the registries cannot
     be reached or `STOCKTAKE_OFFLINE` is set.
 
+    It also fails when a dependency file could not be read, which is not an unsafe finding but is the check not having happened. A skip would
+    be the softer answer and the wrong one: on the command line that case is exit 2, and a suite has no exit code to carry the difference, so
+    a skip here would turn a project that is not being checked into a green run that says so in small print (docs/adr/0009).
+
     `root` is the project to check; pass pytest's `pytestconfig.rootpath` for it. Any other keyword goes straight to `run_check`, which is how
     a test can hand it a fake network or a fixed date.
     """
@@ -58,11 +62,12 @@ def assert_dependencies_are_safe(root: Path | str | None = None, **kwargs: Any) 
     if warning is not None:
         warnings.warn(DependencyUpdateAvailable(warning), stacklevel=2)
 
-    failure = failure_text(report)
-    if failure is not None:
+    # The incomplete message comes first when both apply: it says how much of what follows to trust.
+    trouble = [text for text in (incomplete_text(report), failure_text(report)) if text is not None]
+    if trouble:
         # Raised rather than asserted. `assert` vanishes under `python -O`, which would quietly turn the whole check off and leave a suite
         # passing for the wrong reason. pytest reports an AssertionError exactly the same way.
-        raise AssertionError(failure)
+        raise AssertionError("\n".join(trouble))
 
 
 # ---------------- the plugin proper ----------------

@@ -137,6 +137,20 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 **Left for the owner, not decided here:**
 - **PyPI.** The packaging metadata is complete and the name was still unclaimed on 2026-10-30. Publishing is outward-facing and effectively permanent, so it waits for an explicit decision.
 
+### M5.1 — What the first trial found · size M · `done` (2026-10-30)
+**Goal.** Act on [Can-AI's trial report](feedback/2026-10-30-claude-code-session.md): a deliberate run against ~30 purpose-built fixtures and a 665-dependency project, with ground truth written down first. It found no false positives and exact agreement with OSV and `npm audit` — and three ways StockTake could report a clean project it had not actually checked.
+
+**Scope.** The report's P0s and the P1s that belong to the same promise.
+- **A file StockTake could not read makes the run incomplete** ([ADR 0009](adr/0009-an-unread-file-makes-the-run-incomplete.md)). Readers raise instead of returning nothing; `read_manifest` decodes by byte-order mark so a UTF-16 manifest is read rather than refused; `Report.complete`, exit 2, an `UNREADABLE` section, a JSON field and a SARIF error; the pytest item fails rather than skipping.
+- **The one-line summary tells the truth.** No "nothing unsafe" about dependencies never resolved to a version, and the count says `0 of 5 checked, 5 unpinned` rather than `(5 checked)`.
+- **An unknown config key is refused**, with a suggestion where one is obvious. The module had always claimed every value was validated as it was read; a key nobody named was not a value, and `excludes = [...]` was silently a file with no excludes.
+- **A withdrawn release is recorded even when it also has an advisory.** The status stays `vulnerable` — more actionable — and `Finding.withdrawn` keeps the fact, so the headline no longer says "0 withdrawn" about a project with one.
+- **`--only` narrows JSON too**, and `vulnerable` rows come worst-severity first in text and JSON alike.
+- **`-r` and `-c` includes are followed**, but only to files the walk would not reach anyway, so nothing is reported twice.
+- **A prefixed release tag names a version.** `jq-1.6` was being dropped entirely.
+- **JSON carries `schema_version`, `stocktake_version` and `complete`**, so a gate can refuse a shape it does not know and can tell "this project is fine" from "this run did not manage to look".
+- **Doc corrections the report caught by following them.** `python3.11 -m venv` fails on Ubuntu 24.04; `registry.npmjs.org` was missing from `--help`; `|| true` in the CI snippet swallows exit 2; the cache's size went unmentioned; `vendor NAME` wrote a Python module into a file called `NAME`.
+
 ## Now
 
 ### M6 — More ecosystems · size L · `planned`
@@ -158,6 +172,17 @@ Every `TODO` in the code gets a line here. There are none.
 - **Lock-file entries carry no line number**, only the file, because the TOML and JSON parsers do not report one. Findable by searching the text for the name, which is fragile; not worth it yet.
 - **`dist-info` directory names are trusted** for installed versions rather than the metadata inside them (ADR 0006). The documented layout, and what makes the lookup free.
 - **A project whose environment is in none of the usual places needs `--environment` passing once.** The brand-kit repository is this case. A config entry makes it permanent, but it has to be discovered first; the report's note is what makes that discoverable.
+
+From the Can-AI trial (M5.1). Everything here was raised in the report, considered, and deliberately not done now; the report is the reference for each.
+- **`.gitignore` is not consulted, and there is no `--tracked-only`.** Can-AI's own run found 129 items against `git ls-files`'s 41: the rest were manifests inside build output and vendored trees that its `exclude` list did not happen to name. The default excludes cover the usual suspects, so this is a sharper tool rather than a fix for a silent gap, and it needs a decision about whether a non-git project behaves differently. The right shape is probably `--tracked-only` as an opt-in, not reading `.gitignore` by default.
+- **There is no real offline mode.** `STOCKTAKE_OFFLINE` makes the pytest item skip; it does not let a run answer from the cache alone, and there is no way to take a snapshot and check against it later. Wanted for air-gapped CI and for reproducible runs. It is a feature, not a correction, and it interacts with the cache's TTL in ways worth designing rather than bolting on.
+- **The cache can reach 60–82 MB.** It stores each registry response whole, and PyPI's `/pypi/{name}/json` carries every file of every release. Storing only what is read — the newest version and which releases are fully yanked — would cut it by better than an order of magnitude, at the cost of a cache that cannot answer a question the code does not ask yet.
+- **The JSON report does not name the root it was run against**, and says nothing explicit about findings' paths being relative to it. True today in every reader; not stated, and not enforced by a test.
+- **Nothing distinguishes a direct dependency from a transitive one.** `role: "locked"` is as close as it gets, and it means "came out of a lock file", not "nobody asked for this directly". Doing it properly means reading the dependency graph, which is a different tool.
+- **A suppressed advisory leaves no audit trail in the report.** `policy.ignore` entries do what they say and the ignored ids are not listed anywhere in the output, so a reader cannot see what was set aside. Fixing it is small; deciding whether it belongs in every format or only in JSON is the open part.
+- **The root is not searched for upward.** Running `stocktake` from a subdirectory checks that subdirectory. Defensible — `--root` exists and is explicit — but it surprised the trial, and git, npm and pytest all walk up.
+- **Each HTTPS request opens its own connection.** `urllib` with no shared opener, so a 665-dependency project pays a TLS handshake per name. Measurable but not the bottleneck; the batched OSV endpoint already does the heavy lifting in one request.
+- **Two declarations of one package in a lock file share a SARIF fingerprint** when the file gives no line number, so code scanning may fold them together. The same root cause as the lock-file line-number gap above.
 
 From M4:
 - **The committed copy in `vendored/` has to be regenerated whenever the core changes.** A test fails when it is stale, so it cannot be forgotten, but it is a step: `stocktake vendor vendored/`. A pre-commit hook or a CI step that regenerates and diffs would remove the manual part.

@@ -6,21 +6,20 @@ fails only when something is actually unsafe. It never edits a file, never needs
 The short version, in code:
 
     from pathlib import Path
-    from stocktake import Registries, evaluate, load_config, render_text, scan
+    from stocktake import run_check, render_text
 
-    root = Path(".")
-    config = load_config(root)
-    report = evaluate(scan(root, config), Registries(), config.policy)
+    report = run_check(Path("."))
     print(render_text(report))
-    assert not report.failed
+    assert not report.failed and report.complete
 
 See docs/ARCHITECTURE.md for the shape and docs/adr/ for why it is that shape.
 """
 
 from stocktake._version import __version__
+from stocktake.check import failure_text, incomplete_text, run_check, skip_reason, update_warning
 from stocktake.config import Config, ConfigError, load_config
 from stocktake.evaluate import evaluate
-from stocktake.models import Advisory, Dep, DependencyUpdateAvailable, Finding, Report, Unread
+from stocktake.models import Advisory, Dep, DependencyUpdateAvailable, Finding, Report, Unread, Unreadable
 from stocktake.policy import Policy, PolicyEntry
 from stocktake.registries import Cache, OfflineError, RateLimited, Registries
 from stocktake.report import render_json, render_text
@@ -41,11 +40,17 @@ __all__ = [
     "Registries",
     "Report",
     "Unread",
+    "Unreadable",
     "__version__",
     "evaluate",
+    "failure_text",
+    "incomplete_text",
     "load_config",
     "render_json",
     "render_text",
+    "run_check",
     "scan",
+    "skip_reason",
     "unread_manifests",
+    "update_warning",
 ]

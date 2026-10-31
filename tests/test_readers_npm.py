@@ -6,7 +6,9 @@ The interesting cases are the values that are not versions at all — a file pat
 
 import json
 
-from stocktake.readers.base import Context
+import pytest
+
+from stocktake.readers.base import Context, UnreadableManifest
 from stocktake.readers.npm import is_package_json, is_package_lock, parse_npm_spec, read_package_json, read_package_lock
 
 PACKAGE_JSON = json.dumps(
@@ -157,9 +159,16 @@ def test_a_workspace_manifest_finds_dependencies_hoisted_to_the_repository_root(
     assert [(d.name, d.version, d.source) for d in deps] == [("koffi", "3.3.9", "app/package.json")]
 
 
-def test_a_broken_package_json_yields_nothing_rather_than_crashing_the_run(tmp_path):
-    assert read_manifest(tmp_path, text="{not json") == []
-    assert read_manifest(tmp_path, text='["a", "list"]') == []
+def test_a_broken_package_json_is_reported_as_unreadable_rather_than_as_empty(tmp_path):
+    """A manifest that cannot be parsed is not a manifest with nothing in it.
+
+    Returning an empty list here is what let a project whose only manifest was truncated get a clean report, and it is the whole reason
+    for `UnreadableManifest`: the reader claimed the file, so it has to say so when it could not read it (docs/adr/0009).
+    """
+    with pytest.raises(UnreadableManifest, match="not valid JSON"):
+        read_manifest(tmp_path, text="{not json")
+    with pytest.raises(UnreadableManifest, match="not a table at the top level"):
+        read_manifest(tmp_path, text='["a", "list"]')
 
 
 def test_a_package_json_with_no_dependencies_is_fine(tmp_path):
@@ -219,9 +228,11 @@ def test_the_older_nested_lock_layout_is_read_too(tmp_path):
     assert "ourlib" not in {d.name for d in deps}, "a file: version is not a registry version"
 
 
-def test_a_broken_lock_file_yields_nothing(tmp_path):
-    assert read_lock(tmp_path, "{not json") == []
-    assert read_lock(tmp_path, '["a"]') == []
+def test_a_broken_lock_file_is_reported_as_unreadable(tmp_path):
+    with pytest.raises(UnreadableManifest, match="not valid JSON"):
+        read_lock(tmp_path, "{not json")
+    with pytest.raises(UnreadableManifest, match="not a table at the top level"):
+        read_lock(tmp_path, '["a"]')
 
 
 def test_npm_files_are_recognised(tmp_path):

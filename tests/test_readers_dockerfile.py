@@ -7,6 +7,8 @@ clean-looking report that quietly missed a pin is the most dangerous way for thi
 
 import re
 
+import pytest
+
 from stocktake.readers.base import Context, logical_lines
 from stocktake.readers.dockerfile import (
     github_downloads,
@@ -14,6 +16,7 @@ from stocktake.readers.dockerfile import (
     pip_requirements,
     read_pip_pins,
     read_release_downloads,
+    tag_version,
 )
 
 DOCKERFILE = """FROM python@sha256:abc
@@ -133,3 +136,37 @@ def test_no_pin_written_in_the_dockerfile_escapes_the_reader(tmp_path):
             }
     found = {(d.name.lower(), d.version) for d in read_pip_pins(path, DOCKERFILE, context) if d.version}
     assert expected == found, f"the reader and an independent count disagree about: {expected ^ found}"
+
+
+# ---------- release tags that are not `v1.2.3` ----------
+def test_a_tag_prefixed_with_the_project_name_still_names_a_version():
+    """`jq-1.6` was dropped on the floor in trial: a pinned binary went unchecked, and nothing in the report said so."""
+    text = "RUN curl -L https://github.com/jqlang/jq/releases/download/jq-1.6/jq-linux64 -o /usr/bin/jq\n"
+    assert github_downloads(text) == [("jqlang/jq", "1.6", 1)]
+
+
+@pytest.mark.parametrize(
+    ("tag", "version"),
+    [
+        ("v2.16.0", "2.16.0"),
+        ("2.16.0", "2.16.0"),
+        ("262", "262"),
+        ("jq-1.6", "1.6"),
+        ("openssl-3.0.8", "3.0.8"),
+        ("release-1.2.3", "1.2.3"),
+        ("rel/2.0.1", "2.0.1"),
+        ("v1.2.3-rc1", "1.2.3-rc1"),
+        ("v0.0.0", None),
+        ("0.0.0", None),
+        ("latest", None),
+        ("nightly", None),
+        ("nightly-20240101", None),
+        ("build-7", None),
+        ("models", None),
+    ],
+)
+def test_which_tags_name_a_version(tag, version):
+    """The rejections matter as much as the matches: a tag that is not a release, asked about and then reported as something, is a false
+    finding, and saying something wrong is worse than saying nothing. That is why the prefixed form has to contain a dot.
+    """
+    assert tag_version(tag) == version

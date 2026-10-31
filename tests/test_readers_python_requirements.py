@@ -9,7 +9,13 @@ import re
 import pytest
 
 from stocktake.readers.base import Context, logical_lines
-from stocktake.readers.python_requirements import is_requirements_file, read_requirements, requirement_in, role_of
+from stocktake.readers.python_requirements import (
+    included_file,
+    is_requirements_file,
+    read_requirements,
+    requirement_in,
+    role_of,
+)
 
 REQUIREMENTS = """# Production dependencies, compiled with pip-compile
 --index-url https://pypi.org/simple
@@ -122,3 +128,109 @@ def test_no_requirement_in_the_file_escapes_the_reader(tmp_path):
             expected.add(re.split(r"[\s<>=!~\[;]", bare, maxsplit=1)[0].lower())
     found = {d.name.lower() for d in read(tmp_path)}
     assert expected == found, f"the reader and an independent count disagree about: {expected ^ found}"
+
+
+# ---------- `-r` and `-c` includes ----------
+def test_an_include_the_walk_would_not_reach_is_followed(tmp_path):
+    """`-r deps/pinned.in` is not walked on its own account, so the pins in it went unreported and nothing said they had been missed."""
+    root = tmp_path
+    (root / "deps").mkdir()
+    (root / "deps" / "pinned.in").write_text("idna==3.7\n", encoding="utf-8")
+    path = root / "requirements.txt"
+    text = "flask==3.0.0\n-r deps/pinned.in\n"
+    path.write_text(text, encoding="utf-8")
+    context = Context(root=root, installed=lambda name: None)
+    found = list(read_requirements(path, text, context))
+    assert [(d.name, d.version, d.source) for d in found] == [
+        ("flask", "3.0.0", "requirements.txt:1"),
+        ("idna", "3.7", "deps/pinned.in:1"),
+    ]
+
+
+def test_an_include_the_walk_reaches_anyway_is_not_followed(tmp_path):
+    """`requirements-dev.txt` is walked on its own account, and following the include as well would report every pin in it twice.
+
+    Which is why following includes is conditional at all: the test that matters here is not "can it follow" but "does it know when not to".
+    """
+    root = tmp_path
+    (root / "requirements-dev.txt").write_text("idna==3.7\n", encoding="utf-8")
+    path = root / "requirements.txt"
+    text = "-r requirements-dev.txt\n"
+    path.write_text(text, encoding="utf-8")
+    assert list(read_requirements(path, text, Context(root=root, installed=lambda name: None))) == []
+
+
+def test_an_include_is_resolved_against_the_file_that_holds_it(tmp_path):
+    """pip's rule, not the project root: `requirements/dev.txt` saying `-r shared.in` means `requirements/shared.in`."""
+    root = tmp_path
+    (root / "requirements").mkdir()
+    (root / "requirements" / "shared.in").write_text("idna==3.7\n", encoding="utf-8")
+    path = root / "requirements" / "dev.txt"
+    text = "-r shared.in\n"
+    path.write_text(text, encoding="utf-8")
+    found = list(read_requirements(path, text, Context(root=root, installed=lambda name: None)))
+    assert [(d.name, d.source) for d in found] == [("idna", "requirements/shared.in:1")]
+
+
+def test_a_dotdot_include_is_named_without_the_dotdot_in_it(tmp_path):
+    root = tmp_path
+    (root / "shared.in").write_text("idna==3.7\n", encoding="utf-8")
+    (root / "requirements").mkdir()
+    path = root / "requirements" / "dev.txt"
+    text = "-r ../shared.in\n"
+    path.write_text(text, encoding="utf-8")
+    found = list(read_requirements(path, text, Context(root=root, installed=lambda name: None)))
+    assert [d.source for d in found] == ["shared.in:1"]
+
+
+def test_two_files_that_include_each_other_do_not_recurse_forever(tmp_path):
+    root = tmp_path
+    (root / "a.in").write_text("idna==3.7\n-r b.in\n", encoding="utf-8")
+    (root / "b.in").write_text("click==8.1.7\n-r a.in\n", encoding="utf-8")
+    path = root / "requirements.txt"
+    text = "-r a.in\n"
+    path.write_text(text, encoding="utf-8")
+    found = list(read_requirements(path, text, Context(root=root, installed=lambda name: None)))
+    assert [d.name for d in found] == ["idna", "click"]
+
+
+def test_an_include_pointing_outside_the_project_is_left_alone(tmp_path):
+    """Sources are named relative to the project root, and there is no honest way to write a path that is not under it."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "shared.in").write_text("idna==3.7\n", encoding="utf-8")
+    root = tmp_path / "project"
+    root.mkdir()
+    path = root / "requirements.txt"
+    text = "-r ../outside/shared.in\n"
+    path.write_text(text, encoding="utf-8")
+    assert list(read_requirements(path, text, Context(root=root, installed=lambda name: None))) == []
+
+
+def test_an_include_that_does_not_exist_is_simply_not_followed(tmp_path):
+    path = tmp_path / "requirements.txt"
+    text = "flask==3.0.0\n-r missing.in\n"
+    path.write_text(text, encoding="utf-8")
+    found = list(read_requirements(path, text, Context(root=tmp_path, installed=lambda name: None)))
+    assert [d.name for d in found] == ["flask"]
+
+
+@pytest.mark.parametrize(
+    ("line", "target"),
+    [
+        ("-r other.in", "other.in"),
+        ("--requirement other.in", "other.in"),
+        ("--requirement=other.in", "other.in"),
+        ("-c pins.in", "pins.in"),
+        ("--constraint pins.in", "pins.in"),
+        ('-r "with space.in"', "with space.in"),
+        ("-r other.in  # a comment", "other.in"),
+        ("-e .", None),
+        ("--index-url https://pypi.org/simple", None),
+        ("flask==3.0.0", None),
+        ("-r https://example.invalid/pins.txt", None),
+    ],
+)
+def test_which_lines_are_includes(tmp_path, line, target):
+    found = included_file(line, tmp_path / "requirements.txt")
+    assert (found.name if found else None) == target

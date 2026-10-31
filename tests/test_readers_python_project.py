@@ -1,6 +1,8 @@
 """Reading `pyproject.toml`, at the version actually installed."""
 
-from stocktake.readers.base import Context
+import pytest
+
+from stocktake.readers.base import Context, UnreadableManifest
 from stocktake.readers.pep508 import parse_requirement
 from stocktake.readers.python_project import read_pyproject
 
@@ -54,8 +56,14 @@ def test_the_source_is_the_file_with_no_line_number(tmp_path):
     assert {d.source for d in read(tmp_path, installed={})} == {"pyproject.toml"}
 
 
-def test_a_broken_pyproject_yields_nothing_rather_than_crashing_the_run(tmp_path):
-    assert read(tmp_path, text="[project\nname = ") == []
+def test_a_broken_pyproject_is_reported_as_unreadable_rather_than_as_empty(tmp_path):
+    """A manifest that cannot be parsed is not a manifest with nothing in it.
+
+    Returning an empty list here is what let a project whose only manifest was truncated get a clean report, and it is the whole reason
+    for `UnreadableManifest`: the reader claimed the file, so it has to say so when it could not read it (docs/adr/0009).
+    """
+    with pytest.raises(UnreadableManifest, match="not valid TOML"):
+        read(tmp_path, text="[project\nname = ")
 
 
 def test_a_pyproject_with_no_dependencies_at_all_is_fine(tmp_path):
@@ -106,8 +114,9 @@ def test_a_pipfile_wildcard_is_no_specifier_at_all(tmp_path):
     assert (requests.spec, requests.version) == ("", None)
 
 
-def test_a_damaged_pipfile_yields_nothing(tmp_path):
-    assert read_pipfile_at(tmp_path, text="[packages\nrequests = ") == []
+def test_a_damaged_pipfile_is_reported_as_unreadable(tmp_path):
+    with pytest.raises(UnreadableManifest, match="not valid TOML"):
+        read_pipfile_at(tmp_path, text="[packages\nrequests = ")
 
 
 def test_a_requirement_is_reduced_to_name_pin_and_specifier():

@@ -26,17 +26,31 @@ def _source_width(findings: Sequence[Finding]) -> int:
 
 
 def _rows(report: Report, status: str) -> list[Finding]:
-    """The findings of one status, ordered by where they came from, so the report reads the way the project is laid out."""
-    return sorted((f for f in report.findings if f.status == status), key=lambda f: (f.dep.source, f.dep.name))
+    """The findings of one status, in the order they should be acted on.
+
+    Within `vulnerable` that is worst severity first, then most advisories: the list is read from the top and whoever reads it should meet the
+    critical finding before a low one, not whichever happens to sit in a file named `a`. Every other status keeps file order, so the report
+    reads the way the project is laid out.
+    """
+    rows = [f for f in report.findings if f.status == status]
+    if status != "vulnerable":  # no other status carries a severity to sort by
+        return sorted(rows, key=lambda f: (f.dep.source, f.dep.name))
+    return sorted(rows, key=lambda f: (-f.rank, -len(f.advisories), f.dep.source, f.dep.name))
 
 
 def _headline(report: Report) -> str:
     counts = report.counts
     line = (
         f"Dependency check {report.today}: {len(report.findings)} checked, "
-        f"{counts['vulnerable']} vulnerable, {counts['yanked']} withdrawn, {counts['outdated']} outdated, {counts['unpinned']} unpinned"
+        f"{counts['vulnerable']} vulnerable, {report.withdrawn_count} withdrawn, {counts['outdated']} outdated, {counts['unpinned']} unpinned"
     )
-    return f"{line}  [{report.offline}]" if report.offline else line
+    # Both of these say the report below is partial, which matters more than anything in it, so both go on the first line.
+    if report.offline:
+        line += f"  [{report.offline}]"
+    if report.unreadable:
+        files = "file" if len(report.unreadable) == 1 else "files"
+        line += f"  [{len(report.unreadable)} {files} could not be read]"
+    return line
 
 
 def _vulnerable_row(finding: Finding, width: int, all_advisories: bool, top: int) -> list[str]:
@@ -46,7 +60,8 @@ def _vulnerable_row(finding: Finding, width: int, all_advisories: bool, top: int
     target = fix_target(finding.advisories, dep.version or "0", dep.ecosystem)
     fix = f"; upgrade to {target} or newer" if target else "; no fixed version named"
     # Two spaces after the version: "pillow 9.0.0 52 advisories" otherwise reads as though the version were "9.0.0 52".
-    lines = [f"  {dep.source:<{width}} {dep.name} {dep.version}  {len(finding.advisories)} {plural} ({tally}){fix}"]
+    withdrawn = "; withdrawn by its author" if finding.withdrawn else ""
+    lines = [f"  {dep.source:<{width}} {dep.name} {dep.version}  {len(finding.advisories)} {plural} ({tally}){fix}{withdrawn}"]
 
     shown = finding.advisories if all_advisories else finding.advisories[:top]
     lines += [f"      {a.id} {a.label}: {a.summary}" for a in shown]
@@ -63,12 +78,23 @@ def render_text(report: Report, only: str = "all", all_advisories: bool = False,
 
     if not report.findings:
         # Silence looks like success, and it almost never is. A project with no dependencies at all is far rarer than a misconfigured scan.
-        lines += [
-            "",
-            "Nothing was found to check. If that is a surprise, the project's excludes or enabled ecosystems are the place to look.",
-        ]
+        # Which explanation to offer depends on why: pointing at the excludes is unhelpful advice when the real reason is listed below.
+        if report.unreadable:
+            why = "Every dependency file found could not be read, so nothing could be checked. The reasons are below."
+        elif report.unread_manifests:
+            why = (
+                "Nothing could be checked: every dependency file found is of a kind StockTake has no reader for yet. They are named below."
+            )
+        else:
+            why = "Nothing was found to check. If that is a surprise, the project's excludes or enabled ecosystems are the place to look."
+        lines += ["", why]
 
-    # Anything that affects how much of the report can be trusted comes before the findings themselves.
+    # Anything that affects how much of the report can be trusted comes before the findings themselves, worst first. An unreadable manifest
+    # leads, because it is the one caveat that makes everything after it an incomplete answer rather than a qualified one.
+    if report.unreadable:
+        lines += ["", "UNREADABLE (StockTake meant to read these and could not, so nothing in them was checked)"]
+        lines += [f"  {item.path} {item.reason}" for item in report.unreadable]
+
     for note in report.notes:
         lines += ["", f"NOTE: {note}"]
 

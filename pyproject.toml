@@ -65,7 +65,9 @@ src = ["src", "tests"]
 # Snippets in the docs are illustrative prose, not code to be reformatted.
 # `vendored/` is generated: it is the concatenation of files that were each already linted here, and
 # reformatting it would break the byte-for-byte guard that proves it is current.
-extend-exclude = ["*.md", "vendored"]
+# docs/feedback/examples holds deliberately malformed fixture projects. ruff parses pyproject.toml and .toml files it finds, and one of
+# the fixtures is an unclosed table, which stops the whole run before it lints anything.
+extend-exclude = ["*.md", "vendored", "docs/feedback/examples"]
 
 [tool.ruff.lint]
 select = [

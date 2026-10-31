@@ -33,6 +33,7 @@ LEVELS: dict[str, str] = {
 
 POLICY_RULE = "policy"
 UNREAD_RULE = "unread"
+UNREADABLE_RULE = "unreadable"
 
 RULES: dict[str, tuple[str, str]] = {
     "vulnerable": ("Vulnerable dependency", "A dependency is at a version with a known published security advisory against it."),
@@ -44,6 +45,11 @@ RULES: dict[str, tuple[str, str]] = {
     UNREAD_RULE: (
         "Manifest not read",
         "This file declares dependencies of a kind StockTake has no reader for, so nothing in it was checked.",
+    ),
+    UNREADABLE_RULE: (
+        "Manifest could not be read",
+        "StockTake has a reader for this file and it failed: the file is damaged, or not text. Nothing in it was checked, so this run does "
+        "not cover the whole project.",
     ),
 }
 
@@ -93,7 +99,7 @@ def _result(finding: Finding) -> dict[str, Any]:
 
 def _rules_used(ids: list[str]) -> list[dict[str, Any]]:
     """One rule per id actually used, in a stable order. SARIF wants every ruleId a result refers to declared here."""
-    order = [*STATUSES, POLICY_RULE, UNREAD_RULE]
+    order = [*STATUSES, POLICY_RULE, UNREADABLE_RULE, UNREAD_RULE]
     return [
         {
             "id": rule_id,
@@ -101,7 +107,7 @@ def _rules_used(ids: list[str]) -> list[dict[str, Any]]:
             "shortDescription": {"text": RULES[rule_id][0]},
             "fullDescription": {"text": RULES[rule_id][1]},
             "help": {"text": RULES[rule_id][1]},
-            "defaultConfiguration": {"level": LEVELS.get(rule_id, "error" if rule_id == POLICY_RULE else "note")},
+            "defaultConfiguration": {"level": LEVELS.get(rule_id, "error" if rule_id in (POLICY_RULE, UNREADABLE_RULE) else "note")},
         }
         for rule_id in order
         if rule_id in set(ids) and rule_id in RULES
@@ -126,6 +132,19 @@ def as_sarif(report: Report, only: str = "all") -> dict[str, Any]:
             for problem in report.policy_problems
         ]
 
+    # Never narrowed by `only`, and an error rather than a note. Everything else here is something that was found; this is a part of the
+    # project that was not looked at, which is the one thing a narrowed report must not be able to hide.
+    results += [
+        {
+            "ruleId": UNREADABLE_RULE,
+            "level": "error",
+            "message": {"text": f"This file could not be read, so nothing in it was checked: it {item.reason}."},
+            "locations": [_location(item.path)],
+            "partialFingerprints": {"stocktakeFinding": f"unreadable/{item.path}"},
+        }
+        for item in report.unreadable
+    ]
+
     if "unpinned" in shown:
         results += [
             {
@@ -138,7 +157,15 @@ def as_sarif(report: Report, only: str = "all") -> dict[str, Any]:
             for name in report.unread_manifests
         ]
 
-    notifications = [{"level": "warning", "message": {"text": note}} for note in report.notes]
+    notifications: list[dict[str, Any]] = [{"level": "warning", "message": {"text": note}} for note in report.notes]
+    if report.unreadable:
+        files = "file" if len(report.unreadable) == 1 else "files"
+        notifications.append(
+            {
+                "level": "error",
+                "message": {"text": f"{len(report.unreadable)} dependency {files} could not be read, so this run is incomplete."},
+            }
+        )
     if report.offline:
         notifications.append({"level": "error", "message": {"text": f"The check could not be completed: {report.offline}"}})
 
@@ -157,7 +184,9 @@ def as_sarif(report: Report, only: str = "all") -> dict[str, Any]:
                 },
                 "invocations": [
                     {
-                        "executionSuccessful": report.offline is None,
+                        # False for an unreadable manifest as well as for an unreachable registry: both mean this run did not cover the
+                        # project, and code scanning showing a green run for either is the failure this field exists to prevent.
+                        "executionSuccessful": report.complete,
                         **({"toolExecutionNotifications": notifications} if notifications else {}),
                     }
                 ],

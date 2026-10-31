@@ -17,6 +17,10 @@ Everything below is unreleased: StockTake has not been published anywhere yet, a
 - Fails only on a vulnerable release, a withdrawn release, or a policy entry past its date. A newer release warns. Registries that cannot be reached make the check *incomplete*, never clean.
 - Merges advisories that are the same problem reported twice, ranks them worst first, and names the single version that clears them all.
 - Reports a dependency manifest of a kind it cannot read yet, rather than passing over it in silence.
+- Reports a dependency file it *meant* to read and could not — damaged, or not text — as making the whole run incomplete, with the reason, and exits 2. `--only` cannot narrow it away. ([ADR 0009](docs/adr/0009-an-unread-file-makes-the-run-incomplete.md))
+- Reads a manifest saved as UTF-8, UTF-16 or UTF-32, by its byte-order mark.
+- Follows `-r` and `-c` includes in a requirements file, where the included file is one the walk would not reach on its own.
+- Recognises a release tag prefixed with the project's name, such as `jq-1.6`.
 
 **Using it**
 - `stocktake`, with `--only`, `--format text|json|sarif|summary`, `--root`, `--config`, `--environment`, `--refresh`, `--all-advisories`.
@@ -24,7 +28,8 @@ Everything below is unreleased: StockTake has not been published anywhere yet, a
 - `stocktake init`, which writes a four-line test file and a commented `.stocktake.toml`, and overwrites nothing.
 - `stocktake vendor`, which writes the whole core as one self-contained file for a project that cannot take a dependency.
 - SARIF 2.1.0 output, validated against the published schema by the test suite, so the findings appear in GitHub's code-scanning view on the lines they came from.
-- `.stocktake.toml` (or `[tool.stocktake]` in `pyproject.toml`): `ecosystems`, `exclude`, `accept_unread`, `environment`, `cache.ttl_hours`, and the policy. Every value is validated as it is read, and an unknown ecosystem name is refused rather than ignored.
+- `--format json` carries `schema_version`, `stocktake_version` and `complete`, so a script can refuse a shape it does not know and can tell "this project is fine" from "this run did not manage to look". `--only` narrows the findings in every format, worst severity first.
+- `.stocktake.toml` (or `[tool.stocktake]` in `pyproject.toml`): `ecosystems`, `exclude`, `accept_unread`, `environment`, `cache.ttl_hours`, and the policy. Every value **and every key** is validated as it is read: an unknown ecosystem name and an unknown setting are both refused rather than ignored, and a misspelt key gets a suggestion.
 - Policy entries that need a reason and a date, where an entry past its date fails the check until it is decided again.
 
 **Keeping it honest**
@@ -34,8 +39,12 @@ Everything below is unreleased: StockTake has not been published anywhere yet, a
 
 ### Fixed
 
-Three things found by running it against real projects rather than by design. Each has a regression test.
+Three things found by running it against real projects rather than by design, and four more found by handing it to a project that had never seen it ([the trial report](docs/feedback/2026-10-30-claude-code-session.md)). Each has a regression test.
 
 - **A declared range is resolved against the project's own environment**, not against whichever interpreter happens to be running StockTake. Before this, `uv tool install stocktake` — the recommended way in — would have reported every project's ranges at the versions in StockTake's own virtual environment. ([ADR 0006](docs/adr/0006-which-environment-an-installed-version-comes-from.md))
 - **A tag its publisher advances is a range, not a version.** `uses: actions/checkout@v7` was reported as needing 7.0.1, which is an update that happens by itself. A major gap is still reported. ([ADR 0008](docs/adr/0008-a-tag-its-publisher-moves-is-a-range.md))
 - **Advice is tied to the ecosystem it is about.** A project with no Python in it was being told to point StockTake at a Python environment; a Node project whose `node_modules` is missing is now told to run `npm install` instead.
+- **A dependency file that could not be read is reported, not skipped.** A truncated `package.json`, a `requirements.txt` saved as UTF-16 and a binary file named `requirements.txt` each produced `nothing found to check` and exit 0. The UTF-16 one is now read properly; the other two make the run incomplete and name the reason. ([ADR 0009](docs/adr/0009-an-unread-file-makes-the-run-incomplete.md))
+- **The one-line summary no longer claims more than it checked.** Five unpinned dependencies produced `nothing unsafe, 0 outdated (5 checked)`; they produce `nothing could be checked (0 of 5 checked, 5 unpinned)`.
+- **A withdrawn release stays withdrawn when it also has an advisory.** The status takes the more actionable of the two, which meant the headline said `0 withdrawn` about a project that had one.
+- **`stocktake vendor deps` writes `deps/stocktake_vendored.py`.** It used to write a Python module into a file called `deps`.

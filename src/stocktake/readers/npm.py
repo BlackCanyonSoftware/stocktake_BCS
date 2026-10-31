@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from stocktake.models import Dep
-from stocktake.readers.base import Context, reader
+from stocktake.readers.base import Context, UnreadableManifest, reader
 
 # Values that name something other than a version of this package from the registry: local code, a git repository, an alias, a tarball URL.
 NOT_A_REGISTRY_VERSION = (
@@ -124,10 +124,10 @@ def read_package_json(path: Path, text: str, context: Context) -> Iterable[Dep]:
     """Dependencies declared in a package.json, at the version installed in node_modules."""
     try:
         data = json.loads(text)
-    except ValueError:
-        return  # a broken package.json is that project's problem to report, not this tool's to crash on
+    except ValueError as exc:
+        raise UnreadableManifest(f"is not valid JSON ({exc})") from exc
     if not isinstance(data, dict):
-        return
+        raise UnreadableManifest("is valid but is not a table at the top level, so there is nothing in it a reader can use")
 
     installed = _installed_lookup(path.parent, context.root)
     for section, role in SECTIONS:
@@ -178,10 +178,10 @@ def read_package_lock(path: Path, text: str, context: Context) -> Iterable[Dep]:
     """Packages resolved by a package-lock.json."""
     try:
         data = json.loads(text)
-    except ValueError:
-        return
+    except ValueError as exc:
+        raise UnreadableManifest(f"is not valid JSON ({exc})") from exc
     if not isinstance(data, dict):
-        return
+        raise UnreadableManifest("is valid but is not a table at the top level, so there is nothing in it a reader can use")
     # One finding per name and version. A lock file lists the same package at several depths; the extra rows say nothing new.
     for name, version in dict.fromkeys(_locked_packages(data)):
         yield Dep("npm", name, version, context.source(path), f"=={version}", "locked")

@@ -48,6 +48,12 @@ DEFAULT_EXCLUDES: tuple[str, ...] = (
 
 DEFAULT_CACHE_TTL_HOURS = 6.0
 
+# Every key a config file may set, and every key `[cache]` may set. A file is refused for anything else, which is the only way a typo gets
+# noticed: `excludes = [".venv"]` was read as a file with no excludes at all, and silently scanning a virtual environment looks exactly like
+# scanning a project with a great many dependencies.
+KNOWN_KEYS: frozenset[str] = frozenset({"exclude", "ecosystems", "accept_unread", "environment", "cache", "policy"})
+KNOWN_CACHE_KEYS: frozenset[str] = frozenset({"ttl_hours"})
+
 
 class ConfigError(ValueError):
     """The config file could not be read. Said plainly and at once, rather than guessing at a default."""
@@ -116,6 +122,7 @@ def _cache_ttl_hours(path: Path, table: Mapping[str, Any]) -> float:
     cache = table.get("cache") or {}
     if not isinstance(cache, Mapping):
         raise ConfigError(f"{path}: `[cache]` must be a table")
+    _reject_unknown_keys(path, cache, KNOWN_CACHE_KEYS, "unknown setting in `[cache]`")
     hours = cache.get("ttl_hours", DEFAULT_CACHE_TTL_HOURS)
     if isinstance(hours, bool) or not isinstance(hours, int | float) or hours <= 0:
         raise ConfigError(f"{path}: `cache.ttl_hours` must be a positive number")
@@ -131,7 +138,33 @@ def _environment(path: Path, table: Mapping[str, Any]) -> str | None:
     return value
 
 
+def _suggest(unknown: str, known: frozenset[str]) -> str:
+    """A `did you mean` for a misspelt key, when one known key is obviously what was meant.
+
+    Silent when nothing is close enough: a wrong guess is worse than none, because it sends the reader to rewrite a line that was not the
+    problem.
+    """
+    close = [name for name in sorted(known) if name.startswith(unknown[:4]) or unknown.startswith(name[:4]) or name == unknown.rstrip("s")]
+    return f"; did you mean `{close[0]}`?" if close else ""
+
+
+def _reject_unknown_keys(path: Path, table: Mapping[str, Any], known: frozenset[str], where: str) -> None:
+    """Refuse a key StockTake does not recognise, rather than ignoring it.
+
+    This module's docstring has always claimed every value is validated as it is read, and for the values named here it was true — but a key
+    nobody named was not a value, so it went straight past. The whole point of refusing a config file StockTake cannot understand is that a
+    setting which has silently stopped applying is the one failure a policy file must not have, and a misspelt key is exactly that.
+    """
+    unknown = sorted(key for key in table if key not in known)
+    if not unknown:
+        return
+    named = ", ".join(f"`{key}`" for key in unknown)
+    suggestion = _suggest(unknown[0], known) if len(unknown) == 1 else ""
+    raise ConfigError(f"{path}: {where}: {named}{suggestion}. Valid: {', '.join(sorted(known))}")
+
+
 def _build(path: Path, table: Mapping[str, Any]) -> Config:
+    _reject_unknown_keys(path, table, KNOWN_KEYS, "unknown setting")
     policy = table.get("policy") or {}
     if not isinstance(policy, Mapping):
         raise ConfigError(f"{path}: `[policy]` must be a table")

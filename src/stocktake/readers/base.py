@@ -9,6 +9,7 @@ changes.
 
 from __future__ import annotations
 
+import codecs
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,63 @@ from pathlib import Path
 from stocktake.models import Dep
 
 InstalledFn = Callable[[str], str | None]
+
+
+class UnreadableManifest(Exception):
+    """A reader knew which file this was and could not read it.
+
+    Raised, never swallowed. A manifest that cannot be parsed is not an empty manifest, and the difference matters more here than almost
+    anywhere: a truncated `package.json` that is quietly skipped turns into a clean report for a project nobody checked.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+# Byte-order marks, longest first. UTF-32-LE starts with the two bytes of UTF-16-LE, so testing in this order is not a style choice: the
+# other order decodes a UTF-32 file as UTF-16 and produces a file full of NULs that parses as nothing at all.
+BYTE_ORDER_MARKS: tuple[tuple[bytes, str], ...] = (
+    (codecs.BOM_UTF32_LE, "utf-32-le"),
+    (codecs.BOM_UTF32_BE, "utf-32-be"),
+    (codecs.BOM_UTF8, "utf-8-sig"),
+    (codecs.BOM_UTF16_LE, "utf-16-le"),
+    (codecs.BOM_UTF16_BE, "utf-16-be"),
+)
+
+
+def read_manifest(path: Path) -> str:
+    """The text of one manifest, decoded by its byte-order mark where it has one.
+
+    Raises `UnreadableManifest` instead of returning something that merely looks like text. The previous reading used
+    `errors="replace"`, which never fails and is exactly the problem: a UTF-16 `requirements.txt` — what PowerShell's `>` writes, so a
+    common accident rather than an exotic one — came back as NUL between every character, matched no requirement, and reported a project with
+    no dependencies. Of the three ways this went wrong in trial, that one is the worst, because the file is perfectly good and the report said
+    there was nothing in it.
+    """
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise UnreadableManifest(f"could not be opened ({exc.strerror or exc})") from exc
+
+    for mark, encoding in BYTE_ORDER_MARKS:
+        if data.startswith(mark):
+            try:
+                return data[len(mark) :].decode(encoding) if encoding != "utf-8-sig" else data.decode(encoding)
+            except UnicodeDecodeError as exc:
+                raise UnreadableManifest(f"is marked as {encoding} and is not valid {encoding} (byte {exc.start})") from exc
+
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise UnreadableManifest(f"is not text: not valid UTF-8 at byte {exc.start}, and it carries no byte-order mark") from exc
+
+    # UTF-16 and UTF-32 without a byte-order mark are valid UTF-8 as far as the decoder is concerned, and come back as a NUL between every
+    # character: no requirement matches, and the file reads as an empty project. No real manifest holds a NUL, so this costs nothing and
+    # closes the last way a perfectly good file could be reported as having nothing in it.
+    if "\x00" in text:
+        raise UnreadableManifest("is not text: it holds NUL bytes, so it is probably UTF-16 or UTF-32 saved without a byte-order mark")
+    return text
 
 
 @dataclass(frozen=True, slots=True)

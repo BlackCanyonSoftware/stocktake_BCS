@@ -22,3 +22,11 @@ index would, then wrote down what happened.
 How to read a report: trust the numbers and the commands, treat the
 suggestions as one outsider's view, and compare the same finding across
 reports before acting on it. Nothing in this folder changes StockTake itself.
+
+A report is committed unchanged, before anything is done about it, so that the
+input and the response stay separable and a later reader can judge both. What
+was done about one lives in [../ROADMAP.md](../ROADMAP.md) — a milestone for
+what was acted on, and a line under "Tech debt and known gaps" for every
+suggestion deliberately not taken, with the reason. The 2026-10-30 report is
+answered by M5.1 and by
+[ADR 0009](../adr/0009-an-unread-file-makes-the-run-incomplete.md).

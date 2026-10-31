@@ -68,6 +68,8 @@ docs/adr/          why it is built the way it is. Read the index before changing
 
 One module in `readers/`, one in `registries/`, an import line in each `__init__.py`, and **a guard test** that counts what a fixture declares with an independent regular expression and insists the reader agrees. That is not optional: a clean-looking report that quietly missed half a project is the worst way this tool can fail.
 
+**A reader raises `UnreadableManifest` when it cannot parse a file it claimed. It never returns nothing.** Returning an empty list for a truncated `package.json` is what gave a real project a clean report and exit 0, and nothing enforces this automatically — a reader that forgets re-creates that bug for its own file type ([ADR 0009](docs/adr/0009-an-unread-file-makes-the-run-incomplete.md)).
+
 ## Rules that must never be broken
 
 - **It never edits a dependency**, with any flag, ever. The furthest it may go is printing the edit it would make.

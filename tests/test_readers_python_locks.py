@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from stocktake.readers.base import Context
+from stocktake.readers.base import Context, UnreadableManifest
 from stocktake.readers.python_locks import is_pipfile_lock, is_toml_lock, read_pipfile_lock, read_toml_lock
 
 UV_LOCK = """version = 1
@@ -96,8 +96,14 @@ def test_poetry_and_pdm_locks_are_the_same_shape_and_the_same_reader(tmp_path):
     assert not is_toml_lock(tmp_path / "pyproject.toml")
 
 
-def test_a_damaged_lock_file_yields_nothing_rather_than_crashing_the_run(tmp_path):
-    assert read_toml(tmp_path, "[[package\nname = ") == []
+def test_a_damaged_lock_file_is_reported_as_unreadable_rather_than_as_empty(tmp_path):
+    """A manifest that cannot be parsed is not a manifest with nothing in it.
+
+    Returning an empty list here is what let a project whose only manifest was truncated get a clean report, and it is the whole reason
+    for `UnreadableManifest`: the reader claimed the file, so it has to say so when it could not read it (docs/adr/0009).
+    """
+    with pytest.raises(UnreadableManifest, match="not valid TOML"):
+        read_toml(tmp_path, "[[package\nname = ")
 
 
 def test_a_package_entry_missing_its_name_or_version_is_skipped(tmp_path):
@@ -124,12 +130,15 @@ def test_pipfile_locks_are_recognised(tmp_path):
     assert not is_pipfile_lock(tmp_path / "Pipfile")
 
 
-def test_a_pipfile_lock_that_is_not_valid_json_yields_nothing(tmp_path):
-    assert read_json(tmp_path, "{not json") == []
+def test_a_pipfile_lock_that_is_not_valid_json_is_reported_as_unreadable(tmp_path):
+    with pytest.raises(UnreadableManifest, match="not valid JSON"):
+        read_json(tmp_path, "{not json")
 
 
-def test_a_pipfile_lock_holding_something_unexpected_yields_nothing(tmp_path):
-    assert read_json(tmp_path, '["a", "list"]') == []
+def test_a_pipfile_lock_that_is_not_an_object_is_unreadable_while_a_wrong_shaped_section_is_merely_empty(tmp_path):
+    """Two different things. A file that is not an object cannot be read at all; one whose `default` is a string is readable and declares nothing."""
+    with pytest.raises(UnreadableManifest, match="not a table at the top level"):
+        read_json(tmp_path, '["a", "list"]')
     assert read_json(tmp_path, '{"default": "not a table"}') == []
 
 

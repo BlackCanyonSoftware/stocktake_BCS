@@ -192,3 +192,34 @@ def test_the_counts_cover_every_status_even_at_zero_so_two_runs_can_be_compared(
     counts = judged(tmp_path, [pin("a", "1.0")], net).counts
     assert counts["outdated"] == 1
     assert counts["vulnerable"] == 0 and counts["yanked"] == 0 and counts["current"] == 0
+
+
+# ---------- a release that is both withdrawn and vulnerable ----------
+def test_a_withdrawn_release_with_an_advisory_is_still_recorded_as_withdrawn(tmp_path):
+    """The status went to `vulnerable` and nothing else kept the withdrawal, so the headline said "0 withdrawn" about a project with one.
+
+    `vulnerable` stays the status, because an advisory with a fixed version is the more actionable of the two. The fact is kept beside it.
+    """
+    net = FakeNet(pypi={"a": ("2.0", ["1.0"])}, osv={("a", "1.0"): ["GHSA-1"]}, details={"GHSA-1": advisory_detail("bad")})
+    report = evaluate([pin("a", "1.0")], registries(tmp_path, net), today=TODAY)
+    (finding,) = report.findings
+    assert finding.status == "vulnerable"
+    assert finding.withdrawn is True
+    assert "also withdrawn by its author" in finding.note
+    assert report.withdrawn_count == 1
+    assert report.counts["yanked"] == 0, "the status count is unchanged; it is simply not the number of withdrawals"
+
+
+def test_a_withdrawn_release_with_no_advisory_is_unchanged(tmp_path):
+    net = FakeNet(pypi={"a": ("2.0", ["1.0"])})
+    report = evaluate([pin("a", "1.0")], registries(tmp_path, net), today=TODAY)
+    (finding,) = report.findings
+    assert (finding.status, finding.withdrawn) == ("yanked", True)
+    assert report.withdrawn_count == 1
+
+
+def test_a_release_that_is_neither_is_not_marked(tmp_path):
+    net = FakeNet(pypi={"a": ("1.0", [])})
+    report = evaluate([pin("a", "1.0")], registries(tmp_path, net), today=TODAY)
+    assert report.findings[0].withdrawn is False
+    assert report.withdrawn_count == 0

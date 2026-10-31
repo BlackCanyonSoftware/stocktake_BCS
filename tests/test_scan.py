@@ -20,7 +20,7 @@ def project(tmp_path, dockerfile=DOCKERFILE, pyproject=PYPROJECT):
 
 
 def test_every_reader_is_offered_every_file_it_is_interested_in(tmp_path):
-    deps = scan(project(tmp_path), installed=lambda name: None)
+    deps = scan(project(tmp_path), installed=lambda name: None).deps
     assert {(d.ecosystem, d.name, d.version, d.source) for d in deps} == {
         ("PyPI", "httpx", "0.28.1", "pyproject.toml"),
         ("PyPI", "flask", "3.0.0", "docker/Dockerfile:2"),
@@ -30,19 +30,19 @@ def test_every_reader_is_offered_every_file_it_is_interested_in(tmp_path):
 def test_a_project_can_run_only_the_readers_it_wants(tmp_path):
     root = project(tmp_path, dockerfile=DOCKERFILE + 'RUN curl -LO "https://github.com/o/r/releases/download/v1.2.3/r.tar.gz"\n')
 
-    everything = scan(root, installed=lambda name: None)
+    everything = scan(root, installed=lambda name: None).deps
     assert {d.ecosystem for d in everything} == {"PyPI", "GitHub"}
 
-    python_only = scan(root, installed=lambda name: None, groups=["python"])
+    python_only = scan(root, installed=lambda name: None, groups=["python"]).deps
     assert {d.ecosystem for d in python_only} == {"PyPI"}
 
 
 def test_the_projects_own_config_is_what_decides_which_readers_run(tmp_path):
     root = project(tmp_path, dockerfile=DOCKERFILE + 'RUN curl -LO "https://github.com/o/r/releases/download/v1.2.3/r.tar.gz"\n')
 
-    assert {d.ecosystem for d in scan(root, Config(), installed=lambda name: None)} == {"PyPI", "GitHub"}
-    assert {d.ecosystem for d in scan(root, Config(ecosystems=("python",)), installed=lambda name: None)} == {"PyPI"}
-    assert scan(root, Config(ecosystems=()), installed=lambda name: None) == [], "enabling nothing reads nothing"
+    assert {d.ecosystem for d in scan(root, Config(), installed=lambda name: None).deps} == {"PyPI", "GitHub"}
+    assert {d.ecosystem for d in scan(root, Config(ecosystems=("python",)), installed=lambda name: None).deps} == {"PyPI"}
+    assert scan(root, Config(ecosystems=()), installed=lambda name: None).deps == [], "enabling nothing reads nothing"
 
 
 def test_the_folders_nobody_means_to_scan_are_not_walked(tmp_path):
@@ -51,7 +51,7 @@ def test_the_folders_nobody_means_to_scan_are_not_walked(tmp_path):
         (tmp_path / folder / "Dockerfile").write_text("RUN pip install sneaky==1.0\n", encoding="utf-8")
     (tmp_path / "Dockerfile").write_text("RUN pip install real==1.0\n", encoding="utf-8")
 
-    assert [d.name for d in scan(tmp_path, installed=lambda name: None)] == ["real"]
+    assert [d.name for d in scan(tmp_path, installed=lambda name: None).deps] == ["real"]
 
 
 def test_a_project_can_exclude_its_own_paths_without_any_of_them_being_in_the_source(tmp_path):
@@ -61,13 +61,13 @@ def test_a_project_can_exclude_its_own_paths_without_any_of_them_being_in_the_so
     (tmp_path / "Dockerfile").write_text("RUN pip install real==1.0\n", encoding="utf-8")
 
     config = Config(exclude=("tests/fixtures",))
-    assert [d.name for d in scan(tmp_path, config, installed=lambda name: None)] == ["real"]
+    assert [d.name for d in scan(tmp_path, config, installed=lambda name: None).deps] == ["real"]
 
 
 def test_files_are_walked_in_a_stable_order_so_two_runs_report_the_same_thing(tmp_path):
     root = project(tmp_path)
-    first = [d.source for d in scan(root, installed=lambda name: None)]
-    second = [d.source for d in scan(root, installed=lambda name: None)]
+    first = [d.source for d in scan(root, installed=lambda name: None).deps]
+    second = [d.source for d in scan(root, installed=lambda name: None).deps]
     assert first == second
 
 
@@ -97,7 +97,7 @@ def test_writing_a_reader_takes_a_manifest_off_the_unread_list_by_itself(tmp_pat
     (tmp_path / "go.mod").write_text("module x", encoding="utf-8")
 
     assert unread_manifests(tmp_path).reported == ("go.mod",)
-    assert [d.name for d in scan(tmp_path, installed=lambda name: None)] == ["ruff"]
+    assert [d.name for d in scan(tmp_path, installed=lambda name: None).deps] == ["ruff"]
 
 
 def test_a_manifest_a_reader_does_understand_is_not_called_unread(tmp_path):
@@ -176,7 +176,7 @@ def test_a_named_place_that_is_not_an_environment_is_reported_as_not_found(tmp_p
 def test_a_declared_range_is_resolved_against_that_environment_and_not_another(tmp_path):
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\ndependencies = ["flask>=2"]\n', encoding="utf-8")
     make_venv(tmp_path / ".venv", "flask-3.0.0")
-    assert [(d.name, d.version) for d in scan(tmp_path)] == [("flask", "3.0.0")]
+    assert [(d.name, d.version) for d in scan(tmp_path).deps] == [("flask", "3.0.0")]
 
 
 def test_a_project_can_accept_a_manifest_it_knows_cannot_be_read(tmp_path):
@@ -197,4 +197,4 @@ def test_accepting_a_manifest_is_not_the_same_as_excluding_it(tmp_path):
 
     config = Config(accept_unread=("vendor/go.mod",))
     assert unread_manifests(tmp_path, config).accepted == ("vendor/go.mod",)
-    assert [d.name for d in scan(tmp_path, config, installed=lambda name: None)] == ["real"]
+    assert [d.name for d in scan(tmp_path, config, installed=lambda name: None).deps] == ["real"]

@@ -179,3 +179,61 @@ def test_an_exclude_matches_a_whole_path_or_any_single_segment_of_it():
 
 def test_the_configured_excludes_are_the_defaults_plus_the_projects_own():
     assert Config(exclude=("vendor",)).excludes == (*DEFAULT_EXCLUDES, "vendor")
+
+
+# ---------- a key nobody recognises ----------
+def test_a_misspelt_setting_is_refused_rather_than_ignored(tmp_path):
+    """`excludes = [...]` was read as a file with no excludes at all, and scanning a virtual environment by accident looks exactly like a
+    project with a great many dependencies. This module has always claimed every value is validated as it is read; a key nobody named was
+    not a value, so it went straight past.
+    """
+    path = tmp_path / ".stocktake.toml"
+    path.write_text('excludes = [".venv"]\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="unknown setting: `excludes`; did you mean `exclude`"):
+        load_config(tmp_path)
+
+
+def test_a_setting_that_is_nothing_like_a_real_one_is_refused_without_a_guess(tmp_path):
+    """A wrong guess sends the reader to rewrite the line that was not the problem, so none is offered."""
+    path = tmp_path / ".stocktake.toml"
+    path.write_text("nonsense = 5\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"unknown setting: `nonsense`\. Valid: accept_unread") as caught:
+        load_config(tmp_path)
+    assert "did you mean" not in str(caught.value)
+
+
+def test_every_unknown_setting_is_named_at_once(tmp_path):
+    path = tmp_path / ".stocktake.toml"
+    path.write_text("one = 1\ntwo = 2\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="`one`, `two`"):
+        load_config(tmp_path)
+
+
+def test_an_unknown_key_inside_cache_is_refused_too(tmp_path):
+    path = tmp_path / ".stocktake.toml"
+    path.write_text("[cache]\nttl = 3\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"unknown setting in `\[cache\]`: `ttl`"):
+        load_config(tmp_path)
+
+
+def test_every_setting_the_docs_offer_is_accepted(tmp_path):
+    """The other half of refusing unknown keys: a file using all of them must still load, or the check is worse than useless."""
+    path = tmp_path / ".stocktake.toml"
+    path.write_text(
+        'exclude = ["vendor"]\n'
+        'ecosystems = ["python"]\n'
+        'accept_unread = ["go.mod"]\n'
+        'environment = ".venv"\n'
+        "[cache]\nttl_hours = 1\n"
+        "[[policy.hold_back]]\n"
+        'package = "pillow"\n'
+        'reason = "r"\n'
+        "until = 2026-12-01\n",
+        encoding="utf-8",
+    )
+    config = load_config(tmp_path)
+    assert config.exclude == ("vendor",)
+    assert config.ecosystems == ("python",)
+    assert config.accept_unread == ("go.mod",)
+    assert config.environment == ".venv"
+    assert config.cache_ttl_hours == 1

@@ -50,6 +50,29 @@ OPTIONS_WITH_ARGUMENT = frozenset(
 INSTALLERS = re.compile(r"\b(?:pip\d?|uv\s+pip|uv\s+tool|pipx)\s+install\b")
 RELEASE_DOWNLOAD = re.compile(r"github\.com/([\w.-]+/[\w.-]+)/releases/download/([^/\s\"']+)/")
 
+# A release tag need not be `v1.2.3`. Plenty of projects prefix it with their own name (`jq-1.6`, `openssl-3.0.8`) or with `release-`, and the
+# version is what follows. Trial against a real Dockerfile found `jq-1.6` dropped on the floor: a pinned binary went unchecked, and the report
+# had nothing to say about it either way, which is the quiet gap this tool exists to close.
+#
+# The version part must contain a dot. That leaves out `nightly-20240101` and `build-7`, which are not releases: they would be asked about and
+# then reported as something, and saying something wrong about a tag nobody pinned as a version is worse than saying nothing.
+PREFIXED_TAG = re.compile(r"^[A-Za-z][\w.]*[-_/]v?(\d\w*(?:\.\w+)+)$")
+
+
+def tag_version(tag: str) -> str | None:
+    """The version a GitHub release tag names, or None when it does not name one.
+
+    `v0.0.0` is skipped: projects park model files and other assets under it, and treating it as a release produced a false "major update
+    available" in the original.
+    """
+    version = tag.removeprefix("v")
+    if not re.match(r"\d", version):
+        prefixed = PREFIXED_TAG.match(tag)
+        if prefixed is None:
+            return None
+        version = prefixed.group(1)
+    return None if version == "0.0.0" else version
+
 
 def is_dockerfile(path: Path) -> bool:
     name = path.name
@@ -90,8 +113,8 @@ def pip_requirements(command: str) -> list[tuple[str, str | None, str]]:
 def github_downloads(text: str) -> list[tuple[str, str, int]]:
     """Every GitHub release binary the file downloads, as (owner/repo, version, line).
 
-    The tag is usually a shell variable, so it is resolved against the nearest earlier assignment of that name. `v0.0.0` is skipped: projects
-    park model files and other assets under it, and treating it as a release produced a false "major update available" in the original.
+    The tag is usually a shell variable, so it is resolved against the nearest earlier assignment of that name. Which tags count as naming
+    a version is `tag_version`.
     """
     found: list[tuple[str, str, int]] = []
     for match in RELEASE_DOWNLOAD.finditer(text):
@@ -100,8 +123,8 @@ def github_downloads(text: str) -> list[tuple[str, str, int]]:
             assignments = list(re.finditer(rf"(?<!\w){variable}=[\"']?v?([0-9][\w.]*)", text[: match.start()]))
             if assignments:
                 tag = re.sub(rf"\$\{{?{variable}[^}}]*\}}?", assignments[-1].group(1), tag)
-        version = tag.removeprefix("v")
-        if re.match(r"\d", version) and version != "0.0.0":
+        version = tag_version(tag)
+        if version is not None:
             found.append((repo, version, text[: match.start()].count("\n") + 1))
     return found
 

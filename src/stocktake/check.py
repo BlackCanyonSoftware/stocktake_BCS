@@ -75,12 +75,21 @@ def run_check(
             raise ConfigError(f"no Python environment found at {chosen}")
         lookup, environment_found = found.version, found.found
 
-    deps = scan(root, settings, lookup)
+    scanned = scan(root, settings, lookup)
     # Nothing to say when the caller supplied the answers itself: advice about where to find them is not ours to give.
-    notes = [] if installed is not None else notes_about(deps, environment_found)
+    notes = [] if installed is not None else notes_about(scanned.deps, environment_found)
 
     asking = registries if registries is not None else Registries(Cache(ttl=settings.cache_ttl_seconds, refresh=refresh))
-    report = evaluate(deps, asking, settings.policy, today, unread_manifests(root, settings), notes, settings.source)
+    report = evaluate(
+        scanned.deps,
+        asking,
+        settings.policy,
+        today,
+        unread_manifests(root, settings),
+        notes,
+        settings.source,
+        scanned.unreadable,
+    )
     asking.flush()
     return report
 
@@ -92,6 +101,25 @@ def skip_reason(report: Report) -> str | None:
     check like this gets switched off.
     """
     return f"cannot reach the registries ({report.offline})" if report.offline else None
+
+
+def incomplete_text(report: Report) -> str | None:
+    """What to say when part of the project could not be read at all, or None when all of it was.
+
+    Kept apart from `failure_text`, which is about what was found. This is about what was never looked at, and it is the more serious of the
+    two: a wrong answer gets argued with, while a missing one reads as a clean bill of health. It raises rather than skips because a test
+    suite has no exit code to carry the distinction, and a warning in a pytest summary is how this became invisible in the first place
+    (docs/adr/0009).
+    """
+    if not report.unreadable:
+        return None
+    count = len(report.unreadable)
+    files = "file" if count == 1 else "files"
+    lines = [f"StockTake could not read {count} dependency {files}, so this project was not fully checked:"]
+    lines += [f"  {item.path} {item.reason}" for item in report.unreadable]
+    lines.append("")
+    lines.append("Fix the file, or exclude it in the project's config if it is not meant to be read.")
+    return "\n".join(lines)
 
 
 def update_warning(report: Report) -> str | None:

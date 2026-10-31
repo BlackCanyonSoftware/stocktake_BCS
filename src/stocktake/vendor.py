@@ -256,8 +256,14 @@ def render(root: Path = PACKAGE_ROOT, version: str | None = None) -> str:
 
 
 def write(target: Path, root: Path = PACKAGE_ROOT, version: str | None = None) -> Path:
-    """Write the copy. `target` may be the file to write or a directory to write `stocktake_vendored.py` into."""
-    path = target / VENDORED_NAME if target.is_dir() else target
+    """Write the copy. `target` may be the file to write or a directory to write `stocktake_vendored.py` into.
+
+    A path that does not exist yet is taken for a directory unless it is named like a Python file. `stocktake vendor deps` used to write a
+    Python module into a file called `deps`, which nothing can import and which looks like the command having gone wrong — and the directory
+    the person meant is created either way, so there is no case where guessing "file" is the more helpful reading.
+    """
+    directory = target.is_dir() or (not target.exists() and target.suffix not in (".py", ".pyi"))
+    path = target / VENDORED_NAME if directory else target
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render(root, version), encoding="utf-8")
     return path

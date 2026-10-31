@@ -13,7 +13,7 @@ from datetime import date
 from pathlib import Path
 
 from stocktake._version import __version__
-from stocktake.check import run_check
+from stocktake.check import incomplete_text, run_check
 from stocktake.config import CONFIG_NAME, ConfigError
 from stocktake.init_project import FAILED, WRITTEN, init_project
 from stocktake.models import Report
@@ -31,12 +31,17 @@ EPILOG = """other commands:
   stocktake vendor      write the core as one self-contained file (`stocktake vendor --help`)
 
 exit codes:
-  0  nothing unsafe. Being behind on a release does not change this.
+  0  nothing unsafe, and the whole project was checked. Being behind on a release does not change this.
   1  a vulnerable or withdrawn release, or a policy entry past its date.
-  2  the check could not be completed: the registries could not be reached, or the configuration could not be read.
+  2  the check could not be completed: the registries could not be reached, a dependency file could not be read,
+     or the configuration could not be read. Nothing is claimed about the project either way.
 
-Only package names and versions leave this machine, to pypi.org, api.github.com and api.osv.dev.
+In a CI step, do not write `stocktake || true`: that hides 2 as well as 1. To allow 1 and still catch 2, use
+`stocktake || [ $? -eq 1 ]`.
+
+Only package names and versions leave this machine, to pypi.org, registry.npmjs.org, api.github.com and api.osv.dev.
 No file in the project is ever modified. Answers are cached for six hours; --refresh ignores the cache.
+The cache lives in your user cache directory and a large project can fill tens of megabytes of it.
 Set GITHUB_TOKEN to raise GitHub's anonymous limit of 60 requests an hour; it is sent to GitHub alone.
 """
 
@@ -69,7 +74,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--environment",
         metavar="PATH",
-        help="the Python environment whose installed versions to use, for dependencies declared as a range "
+        help="the Python environment whose installed versions to use, for dependencies declared as a range. "
+        "A relative path is taken from the current directory here, and from the project root when it is set in the config file "
         "(default: the project's own .venv, else the environment active in this shell)",
     )
     parser.add_argument("--refresh", action="store_true", help="ask the registries again instead of using answers cached for six hours")
@@ -80,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _rendered(report: Report, args: argparse.Namespace) -> str:
     if args.format == "json":
-        return render_json(report)
+        return render_json(report, args.only)
     if args.format == "sarif":
         return render_sarif(report, args.only)
     if args.format == "summary":
@@ -121,7 +127,15 @@ def run(
 
     out(_rendered(report, args))
 
-    if report.offline:
+    # On stderr, so a `--format json` run stays machine-readable on stdout while a person watching the terminal is still told. Printed even
+    # when something unsafe was also found: the exit code can only carry one of the two, and this is the one the report cannot show.
+    incomplete = incomplete_text(report)
+    if incomplete is not None:
+        print(f"\nstocktake: {incomplete}", file=sys.stderr)
+
+    # Incomplete outranks unsafe. A 1 says "I checked and found this"; a 2 says "do not read a verdict into this run", and that has to win,
+    # because the findings in an incomplete run are a floor and not an answer (docs/adr/0009).
+    if not report.complete:
         return INCOMPLETE
     return UNSAFE if report.failed else OK
 
@@ -178,7 +192,8 @@ def vendor(argv: Sequence[str] | None = None, *, root: Path | None = None, out: 
         "path",
         nargs="?",
         metavar="PATH",
-        help=f"a directory to write {VENDORED_NAME} into, or the file to write (default: the current directory)",
+        help=f"a directory to write {VENDORED_NAME} into, or a .py file to write "
+        "(default: the current directory; a path that does not exist yet and is not named *.py is created as a directory)",
     )
     args = parser.parse_args(argv)
 

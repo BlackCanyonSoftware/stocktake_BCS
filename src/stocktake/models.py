@@ -93,6 +93,14 @@ class Finding:
     update: str | None = None  # major | minor | patch
     advisories: tuple[Advisory, ...] = ()
     note: str = ""
+    # True when the registry says this exact release was withdrawn, whatever `status` ended up being. A release can be both withdrawn and
+    # vulnerable; the status keeps the more actionable of the two, and this keeps the fact from being lost with it.
+    withdrawn: bool = False
+
+    @property
+    def rank(self) -> int:
+        """The worst severity any of this finding's advisories carries. 0 when there are none, or none of them is rated."""
+        return max((a.rank for a in self.advisories), default=0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +109,18 @@ class Unread:
 
     reported: tuple[str, ...] = ()  # nobody has acknowledged these, so they are named in the report
     accepted: tuple[str, ...] = ()  # listed in the project's `accept_unread`: they do not nag, but they are still recorded
+
+
+@dataclass(frozen=True, slots=True)
+class Unreadable:
+    """A manifest StockTake meant to read and could not: unparseable, undecodable, or unopenable.
+
+    Different from `Unread`, and worse. An unread manifest is a kind nothing supports yet — a known gap, reported and survivable. This is a
+    file a reader claimed and then failed on, so what is in it is unknown, and a report that leaves it out is not a report of the project.
+    """
+
+    path: str
+    reason: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +137,8 @@ class Report:
     notes: tuple[str, ...] = ()
     # The config file this run used, so a policy problem can be pointed at the file that caused it.
     config_source: str | None = None
+    # Manifests a reader claimed and then could not read. Never empty-and-ignored: see `complete`.
+    unreadable: tuple[Unreadable, ...] = ()
 
     @property
     def failed(self) -> bool:
@@ -124,6 +146,25 @@ class Report:
         return bool(self.policy_problems) or any(f.severity == "fail" for f in self.findings)
 
     @property
+    def complete(self) -> bool:
+        """Whether this run actually covers the project it was pointed at.
+
+        An incomplete run is not a passing run, however clean the findings in it look. Both ways it can be incomplete amount to the same
+        thing — part of the project went unchecked — so both answer here, and the exit code treats them alike (docs/adr/0009).
+        """
+        return self.offline is None and not self.unreadable
+
+    @property
     def counts(self) -> dict[str, int]:
         """How many findings of each status, every status present even at zero, so two runs are comparable."""
         return {status: sum(1 for f in self.findings if f.status == status) for status in STATUSES}
+
+    @property
+    def withdrawn_count(self) -> int:
+        """How many dependencies are at a release its author withdrew.
+
+        Not the same as `counts["yanked"]`, which counts the findings whose *status* is yanked. A release that is both withdrawn and
+        vulnerable takes the more actionable status, so counting statuses under-reports the withdrawals — which it did, and the headline said
+        "0 withdrawn" about a project that had one.
+        """
+        return sum(1 for f in self.findings if f.status == "yanked" or f.withdrawn)

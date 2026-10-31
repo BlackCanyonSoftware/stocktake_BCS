@@ -1,0 +1,7 @@
+# StockTake's own configuration, which is also the worked example: this is what a project writes.
+
+# docs/feedback/examples holds ~40 deliberately malformed fixture projects — a truncated package.json, a UTF-16 requirements.txt, a pyproject
+# with an unclosed table. They are the evidence for the trial report beside them, and every one of them is meant to be unreadable, so they are
+# excluded here rather than reported on every run. Note what is *not* done: they are not accepted via `accept_unread`, which would hide them
+# while still walking them. They are excluded, because they are not this project's dependencies at all.
+exclude = ["docs/feedback/examples"]

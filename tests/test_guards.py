@@ -39,7 +39,7 @@ def test_this_project_has_no_manifest_of_a_kind_it_cannot_read_itself():
 
 def test_this_projects_own_dependencies_are_found_at_all():
     """A scan of this repository that found nothing would make every other green test here meaningless."""
-    found = scan(ROOT, load_config(ROOT))
+    found = scan(ROOT, load_config(ROOT)).deps
     assert {d.name for d in found} >= {"pytest", "ruff", "mypy"}, "its own dev dependencies, from pyproject.toml"
     assert {d.name for d in found} >= {"actions/checkout", "actions/setup-python"}, "and the actions its own CI pins"
     assert {d.source.split(":")[0] for d in found} == {"pyproject.toml", ".github/workflows/ci.yml"}

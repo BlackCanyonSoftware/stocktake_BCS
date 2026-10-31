@@ -25,18 +25,18 @@ VULNERABLE (fix these)
       GHSA-w74x-v6f9-j3xg MODERATE: fast-uri vulnerable to URI scheme spoofing via percent-encoded scheme decoding
 ```
 
-Exit codes: **0** nothing unsafe · **1** something unsafe · **2** the check could not be completed.
+Exit codes: **0** nothing unsafe, and the whole project was checked · **1** something unsafe · **2** the check could not be completed — a registry was unreachable, or a dependency file could not be read, so nothing is claimed either way ([ADR 0009](docs/adr/0009-an-unread-file-makes-the-run-incomplete.md)).
 
 ---
 
 ## Install
 
-> **StockTake is not published anywhere yet.** `pip install stocktake` and `uv tool install stocktake` do **not** work — the name is unclaimed on PyPI by choice, not by accident. Install from a clone. The two commented lines below are what to use once it is published; nothing else about using it changes.
+> **StockTake is not on PyPI.** The source is public and installing from it works — `pip install git+...`, or a clone — and that is the supported route today. What does **not** work is `pip install stocktake` or `uv tool install stocktake`: the name is unclaimed by choice, not by accident. The two commented lines below are what to use once it is published; nothing else about using it changes.
 
 ```bash
 git clone https://github.com/BlackCanyonSoftware/stocktake_BCS.git
 cd stocktake_BCS
-py -3.11 -m venv .venv                                   # python3.11 -m venv on macOS and Linux
+py -3.11 -m venv .venv                                   # python3 -m venv on macOS and Linux
 ./.venv/Scripts/python -m pip install -e .                # .venv/bin/python elsewhere
 ./.venv/Scripts/stocktake --version
 
@@ -45,7 +45,7 @@ py -3.11 -m venv .venv                                   # python3.11 -m venv on
 #   uv add --dev stocktake           # as a dev dependency of one project
 ```
 
-Requires **Python 3.11 or later** and nothing else. The core has no dependencies at all and never will — a tool whose job is watching your supply chain is a poor advertisement for itself if adopting it widens that supply chain. (`packaging` is used for version comparison when it happens to be importable, with a built-in fallback when it is not.)
+Requires **Python 3.11 or later** and nothing else — any 3.11+ interpreter will do, so use whichever `python3` your machine already has rather than looking for a `python3.11` binary it may not have. The core has no dependencies at all and never will — a tool whose job is watching your supply chain is a poor advertisement for itself if adopting it widens that supply chain. (`packaging` is used for version comparison when it happens to be importable, with a built-in fallback when it is not.)
 
 **Installing from git** works and is what the CI route below uses:
 
@@ -154,13 +154,13 @@ This is the route for a Node project, a Dockerfile-only repository, or anywhere 
   with:
     python-version: "3.13"
 - run: pip install git+https://github.com/BlackCanyonSoftware/stocktake_BCS
-- run: stocktake --format sarif > stocktake.sarif || true
+- run: stocktake --format sarif > stocktake.sarif || [ $? -eq 1 ]
 - uses: github/codeql-action/upload-sarif@v4
   with:
     sarif_file: stocktake.sarif
 ```
 
-The `|| true` is deliberate: exit 1 means it found something, which is exactly what there is to upload. The findings then appear in the repository's code-scanning view on the lines they came from. Set `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` on the steps to raise GitHub's anonymous limit of 60 requests an hour. The job needs `permissions: security-events: write`.
+`|| [ $? -eq 1 ]` allows exit 1 — it found something, which is exactly what there is to upload — and still fails the step on exit 2. Do not write `|| true` here: it swallows 2 as well, and 2 is the code that means the report cannot be trusted ([ADR 0009](docs/adr/0009-an-unread-file-makes-the-run-incomplete.md)). The findings then appear in the repository's code-scanning view on the lines they came from. Set `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` on the steps to raise GitHub's anonymous limit of 60 requests an hour. The job needs `permissions: security-events: write`.
 
 For a project with no Python in it at all, this plus the vendored file are the two routes — and the vendored file needs no install step.
 
@@ -182,11 +182,12 @@ The decision is just the table above; the traps are these.
 2. **Do not change any dependency pin as part of adopting it.** StockTake reports; acting on a report is a separate, reviewed change.
 3. **`stocktake init` and `stocktake vendor` write files.** `init` refuses to overwrite without `--force`; `vendor` always overwrites, because refreshing the generated file is the point. Neither touches anything else.
 4. **Expect exit 1 on the first run of a real project.** It means it found something, not that the setup is broken. All five projects it has been run against had vulnerable dependencies.
-5. **A project whose Python environment is not `./.venv`** needs `--environment PATH`, or an `environment` line in `.stocktake.toml`. Without it, dependencies declared as a range are reported as unpinned rather than checked — honestly, but uselessly. The report says so when this happens, and names the flag.
-6. **A project with no `node_modules`** has its `package.json` ranges unresolved for the same reason. Run the install first, or read the lock file findings, which are unaffected.
-7. **Do not add `stocktake` to a project's *runtime* dependencies.** It is a development tool.
-8. **The cache** lives outside the project (`%LOCALAPPDATA%\stocktake` or `~/.cache/stocktake`). Nothing needs adding to `.gitignore`.
-9. **Read [AGENTS.md](AGENTS.md) instead of this section** if you are changing StockTake itself rather than using it. Different job, different rules.
+5. **Exit 2 means the report is not to be trusted** — a registry was unreachable, or a dependency file could not be read. In the second case the report names the file and what was wrong with it. If it is a file that is not really a manifest (a fixture, test data), `exclude` it; do not reach for `accept_unread`, which hides it while still walking it ([ADR 0009](docs/adr/0009-an-unread-file-makes-the-run-incomplete.md)).
+6. **A project whose Python environment is not `./.venv`** needs `--environment PATH`, or an `environment` line in `.stocktake.toml`. Without it, dependencies declared as a range are reported as unpinned rather than checked — honestly, but uselessly. The report says so when this happens, and names the flag. A relative path means two different things on purpose: on the command line it is relative to where you are, and in the config file it is relative to the project root, because a path written into a project's own config means a path in that project.
+7. **A project with no `node_modules`** has its `package.json` ranges unresolved for the same reason. Run the install first, or read the lock file findings, which are unaffected.
+8. **Do not add `stocktake` to a project's *runtime* dependencies.** It is a development tool.
+9. **The cache** lives outside the project (`%LOCALAPPDATA%\stocktake` or `~/.cache/stocktake`), so nothing needs adding to `.gitignore`. It holds each registry answer whole, so a project with several hundred dependencies can leave tens of megabytes there; delete the directory whenever you like, and the next run refills what it needs.
+10. **Read [AGENTS.md](AGENTS.md) instead of this section** if you are changing StockTake itself rather than using it. Different job, different rules.
 
 ---
 
@@ -220,7 +221,7 @@ reason = "12.4 changes the PNG writer; rebuild the logo samples first"
 until = 2026-12-01
 ```
 
-Every value is validated as it is read. An unknown ecosystem name is **refused**, not ignored — a typo that silently switched half the check off would be the worst kind of failure for a file like this. If both files exist, `.stocktake.toml` wins and the report says which was used.
+Every value is validated as it is read, **and so is every key**. An unknown ecosystem name is refused, and so is an unknown setting: `excludes = [...]` is an error naming `exclude`, not a file with no excludes in it. A typo that silently switched half the check off would be the worst kind of failure for a file like this. If both files exist, `.stocktake.toml` wins and the report says which was used.
 
 ---
 
@@ -242,6 +243,15 @@ stocktake vendor .                     # write the core as one self-contained fi
 ```
 
 `stocktake --help`, `stocktake init --help` and `stocktake vendor --help` are the full reference. `python -m stocktake` works too.
+
+### Reading the JSON
+
+If you are gating on this from a script, two fields come before the findings:
+
+- **`complete`** — `false` when a registry could not be reached or a dependency file could not be read. **Check this first.** `failed: false` on its own cannot tell "this project is fine" from "this run did not manage to look", which is the whole point of [ADR 0009](docs/adr/0009-an-unread-file-makes-the-run-incomplete.md). `unreadable` lists each file and why, and is never narrowed by `--only`.
+- **`schema_version`** — `1` today, bumped when a key is removed or changes meaning. Adding a key does not bump it, so ignore the ones you do not know. `stocktake_version` is beside it.
+
+`counts` counts findings by status. `withdrawn_count` is separate and is the one to use for withdrawals: a release that is both withdrawn and vulnerable takes the more actionable status, so `counts.yanked` is not the number of withdrawn releases. `--only` narrows `findings` in every format, worst severity first. Every `source` is relative to the project root.
 
 ### Using it from Python
 

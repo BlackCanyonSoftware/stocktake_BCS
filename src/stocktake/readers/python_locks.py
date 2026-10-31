@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from stocktake.models import Dep
-from stocktake.readers.base import Context, reader
+from stocktake.readers.base import Context, UnreadableManifest, reader
 
 TOML_LOCKS = frozenset({"uv.lock", "pdm.lock", "poetry.lock"})
 
@@ -59,8 +59,8 @@ def read_toml_lock(path: Path, text: str, context: Context) -> Iterable[Dep]:
     """Packages resolved by a uv, pdm or poetry lock file."""
     try:
         data = tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
-        return  # a damaged lock file is the project's problem to notice, not this tool's to crash on
+    except tomllib.TOMLDecodeError as exc:
+        raise UnreadableManifest(f"is not valid TOML ({exc})") from exc
     for name, version in _toml_packages(data):
         yield Dep("PyPI", name, version, context.source(path), f"=={version}", "locked")
 
@@ -70,10 +70,10 @@ def read_pipfile_lock(path: Path, text: str, context: Context) -> Iterable[Dep]:
     """Packages resolved by a Pipfile.lock, keeping the section each one came from."""
     try:
         data = json.loads(text)
-    except ValueError:
-        return
+    except ValueError as exc:
+        raise UnreadableManifest(f"is not valid JSON ({exc})") from exc
     if not isinstance(data, dict):
-        return
+        raise UnreadableManifest("is valid but is not a table at the top level, so there is nothing in it a reader can use")
     for section, role in (("default", "locked"), ("develop", "dev")):
         entries = data.get(section)
         if not isinstance(entries, dict):

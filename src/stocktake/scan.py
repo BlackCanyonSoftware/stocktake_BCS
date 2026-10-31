@@ -11,14 +11,14 @@ import json
 import os
 import sys
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fnmatch import fnmatch
 from importlib import metadata
 from pathlib import Path
 
 from stocktake.config import Config, excluded
-from stocktake.models import Dep, Unread, normalize
-from stocktake.readers import READERS, Context, InstalledFn
+from stocktake.models import Dep, Unread, Unreadable, normalize
+from stocktake.readers import READERS, Context, InstalledFn, UnreadableManifest, read_manifest
 
 # Files that declare dependencies in some form. A kind no registered reader is interested in gets reported as unread rather than ignored,
 # which is what turns "StockTake does not support this yet" from a silent gap into something the project is told about.
@@ -190,8 +190,20 @@ def _declares_npm_dependencies(text: str) -> bool:
     )
 
 
-def scan(root: Path, config: Config | None = None, installed: InstalledFn | None = None, groups: Sequence[str] | None = None) -> list[Dep]:
-    """Every dependency the project declares, in the order the files were walked.
+@dataclass(frozen=True, slots=True)
+class Scan:
+    """What walking a project turned up: what it declares, and what could not be read.
+
+    The second half is not an afterthought. A scan that returned only the dependencies had nowhere to put "I was meant to read this file and
+    failed", so it dropped it, and a project whose `package.json` was truncated got a clean report (docs/adr/0009).
+    """
+
+    deps: list[Dep] = field(default_factory=list)
+    unreadable: list[Unreadable] = field(default_factory=list)
+
+
+def scan(root: Path, config: Config | None = None, installed: InstalledFn | None = None, groups: Sequence[str] | None = None) -> Scan:
+    """Every dependency the project declares, in the order the files were walked, and every manifest that defeated its reader.
 
     `installed` answers what is present in the project's environment; the default works it out with `installed_for`.
 
@@ -203,18 +215,25 @@ def scan(root: Path, config: Config | None = None, installed: InstalledFn | None
     chosen = groups if groups is not None else config.ecosystems
     active = [r for r in READERS if chosen is None or r.group in chosen]
 
-    deps: list[Dep] = []
+    found = Scan()
     for path in iter_files(root, config.excludes):
         wanted = [r for r in active if r.interested(path)]
         if not wanted:
             continue
+        relative = path.relative_to(root).as_posix()
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue  # unreadable is not the same as absent, but neither is it this tool's business to fix
+            text = read_manifest(path)
+        except UnreadableManifest as exc:
+            found.unreadable.append(Unreadable(relative, exc.reason))
+            continue
         for one in wanted:
-            deps.extend(one.read(path, text, context))
-    return deps
+            try:
+                # Readers are generators, so the reading happens here and a failure surfaces here. Whatever a reader managed to yield before
+                # giving up is kept: those dependencies are real, and the file is reported as unreadable alongside them.
+                found.deps.extend(one.read(path, text, context))
+            except UnreadableManifest as exc:
+                found.unreadable.append(Unreadable(relative, exc.reason))
+    return found
 
 
 def unread_manifests(root: Path, config: Config | None = None) -> Unread:
@@ -236,10 +255,10 @@ def unread_manifests(root: Path, config: Config | None = None) -> Unread:
             continue
         if path.name == "package.json":
             try:
-                if not _declares_npm_dependencies(path.read_text(encoding="utf-8", errors="replace")):
+                if not _declares_npm_dependencies(read_manifest(path)):
                     continue
-            except OSError:
-                continue
+            except UnreadableManifest:
+                pass  # it could not be read, so whether it declares anything is unknown — which is a reason to name it, not to drop it
         relative = path.relative_to(root).as_posix()
         (accepted if excluded(relative, config.accept_unread) else reported).append(relative)
     return Unread(tuple(sorted(reported)), tuple(sorted(accepted)))

@@ -30,9 +30,9 @@ Order is fixed and is the design: what must be fixed is first, what is merely in
 |---|---|
 | 0 | nothing unsafe. Outdated dependencies do not change this. |
 | 1 | a vulnerable or withdrawn release, or a policy entry past its date. |
-| 2 | the check could not be completed: the registries could not be reached, or the configuration could not be read. Not a judgement about the project. |
+| 2 | the check could not be completed: the registries could not be reached, a dependency file could not be read, or the configuration could not be read. Not a judgement about the project. |
 
-Three codes, each with one meaning. A caller can branch on them without parsing output. Code 2 covers both ways of not knowing, because the useful distinction for a caller is "the check reached a verdict" versus "it did not" — and a config file that cannot be parsed must never quietly fall back to defaults, which would mean the project's policy silently stopped applying.
+Three codes, each with one meaning. A caller can branch on them without parsing output. Code 2 covers every way of not knowing, because the useful distinction for a caller is "the check reached a verdict" versus "it did not" — and a config file that cannot be parsed must never quietly fall back to defaults, which would mean the project's policy silently stopped applying. **2 outranks 1**: a run that did not cover the project may well have found something unsafe, and reporting that as the verdict would present a floor as an answer ([ADR 0009](adr/0009-an-unread-file-makes-the-run-incomplete.md)).
 
 ### Update sizes
 `major`, `minor`, `patch`, from the first position where the versions differ. Named rather than numbered because the useful question is "how scared should I be of this bump".
@@ -51,7 +51,9 @@ Every one of these is a state the report must handle, and each has a test:
 - **Notes.** Above everything else, along with policy problems: anything that changes how much of the report can be trusted. The one that exists today is "no Python environment was found", which means every declared range went unresolved — and it names the flag that fixes it, because a note that only states a problem is half a note.
 - **Policy problems.** Above the findings, because a report whose policy has expired is not trustworthy until that is settled.
 - **Unread manifest.** Named, with what it would take to read it. One the project has accepted in its config is not printed, but still appears in the JSON report: an unchecked surface may stop nagging, never become invisible.
-- **No dependencies found at all.** Said explicitly, because silence looks like success. A project where the scanner found nothing is much more likely to be misconfigured than genuinely dependency-free.
+- **Unreadable manifest.** A different and worse thing: a reader claimed the file and failed on it, so what is in it is unknown. It leads the report, is named with the reason, makes the run incomplete, exits 2, and cannot be narrowed away by `--only`. Unread is a bounded gap; this is an unbounded one ([ADR 0009](adr/0009-an-unread-file-makes-the-run-incomplete.md)).
+- **No dependencies found at all.** Said explicitly, because silence looks like success. A project where the scanner found nothing is much more likely to be misconfigured than genuinely dependency-free — and the explanation offered depends on which it is: files that could not be read, files of a kind nothing reads yet, or genuinely nothing found.
+- **Nothing resolved.** Rows found, none of them resolved to a version. `nothing could be checked (0 of 5 checked, 5 unpinned)` and never "nothing unsafe", which would be a claim about five dependencies nobody looked up.
 
 ## Report formats
 - **`text`** (default) — for a person at a terminal. The layout below.

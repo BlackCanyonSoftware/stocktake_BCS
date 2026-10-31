@@ -40,6 +40,7 @@ from typing import Any
 from typing import Protocol
 from typing import runtime_checkable
 from urllib.parse import quote
+import codecs
 import hashlib
 import json
 import os
@@ -155,6 +156,14 @@ class Finding:
     update: str | None = None  # major | minor | patch
     advisories: tuple[Advisory, ...] = ()
     note: str = ""
+    # True when the registry says this exact release was withdrawn, whatever `status` ended up being. A release can be both withdrawn and
+    # vulnerable; the status keeps the more actionable of the two, and this keeps the fact from being lost with it.
+    withdrawn: bool = False
+
+    @property
+    def rank(self) -> int:
+        """The worst severity any of this finding's advisories carries. 0 when there are none, or none of them is rated."""
+        return max((a.rank for a in self.advisories), default=0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +172,18 @@ class Unread:
 
     reported: tuple[str, ...] = ()  # nobody has acknowledged these, so they are named in the report
     accepted: tuple[str, ...] = ()  # listed in the project's `accept_unread`: they do not nag, but they are still recorded
+
+
+@dataclass(frozen=True, slots=True)
+class Unreadable:
+    """A manifest StockTake meant to read and could not: unparseable, undecodable, or unopenable.
+
+    Different from `Unread`, and worse. An unread manifest is a kind nothing supports yet — a known gap, reported and survivable. This is a
+    file a reader claimed and then failed on, so what is in it is unknown, and a report that leaves it out is not a report of the project.
+    """
+
+    path: str
+    reason: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +200,8 @@ class Report:
     notes: tuple[str, ...] = ()
     # The config file this run used, so a policy problem can be pointed at the file that caused it.
     config_source: str | None = None
+    # Manifests a reader claimed and then could not read. Never empty-and-ignored: see `complete`.
+    unreadable: tuple[Unreadable, ...] = ()
 
     @property
     def failed(self) -> bool:
@@ -186,9 +209,28 @@ class Report:
         return bool(self.policy_problems) or any(f.severity == "fail" for f in self.findings)
 
     @property
+    def complete(self) -> bool:
+        """Whether this run actually covers the project it was pointed at.
+
+        An incomplete run is not a passing run, however clean the findings in it look. Both ways it can be incomplete amount to the same
+        thing — part of the project went unchecked — so both answer here, and the exit code treats them alike (docs/adr/0009).
+        """
+        return self.offline is None and not self.unreadable
+
+    @property
     def counts(self) -> dict[str, int]:
         """How many findings of each status, every status present even at zero, so two runs are comparable."""
         return {status: sum(1 for f in self.findings if f.status == status) for status in STATUSES}
+
+    @property
+    def withdrawn_count(self) -> int:
+        """How many dependencies are at a release its author withdrew.
+
+        Not the same as `counts["yanked"]`, which counts the findings whose *status* is yanked. A release that is both withdrawn and
+        vulnerable takes the more actionable status, so counting statuses under-reports the withdrawals — which it did, and the headline said
+        "0 withdrawn" about a project that had one.
+        """
+        return sum(1 for f in self.findings if f.status == "yanked" or f.withdrawn)
 
 # ======================================================================================================================
 # stocktake.readers.pep508
@@ -499,6 +541,63 @@ changes.
 InstalledFn = Callable[[str], str | None]
 
 
+class UnreadableManifest(Exception):
+    """A reader knew which file this was and could not read it.
+
+    Raised, never swallowed. A manifest that cannot be parsed is not an empty manifest, and the difference matters more here than almost
+    anywhere: a truncated `package.json` that is quietly skipped turns into a clean report for a project nobody checked.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+# Byte-order marks, longest first. UTF-32-LE starts with the two bytes of UTF-16-LE, so testing in this order is not a style choice: the
+# other order decodes a UTF-32 file as UTF-16 and produces a file full of NULs that parses as nothing at all.
+BYTE_ORDER_MARKS: tuple[tuple[bytes, str], ...] = (
+    (codecs.BOM_UTF32_LE, "utf-32-le"),
+    (codecs.BOM_UTF32_BE, "utf-32-be"),
+    (codecs.BOM_UTF8, "utf-8-sig"),
+    (codecs.BOM_UTF16_LE, "utf-16-le"),
+    (codecs.BOM_UTF16_BE, "utf-16-be"),
+)
+
+
+def read_manifest(path: Path) -> str:
+    """The text of one manifest, decoded by its byte-order mark where it has one.
+
+    Raises `UnreadableManifest` instead of returning something that merely looks like text. The previous reading used
+    `errors="replace"`, which never fails and is exactly the problem: a UTF-16 `requirements.txt` — what PowerShell's `>` writes, so a
+    common accident rather than an exotic one — came back as NUL between every character, matched no requirement, and reported a project with
+    no dependencies. Of the three ways this went wrong in trial, that one is the worst, because the file is perfectly good and the report said
+    there was nothing in it.
+    """
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise UnreadableManifest(f"could not be opened ({exc.strerror or exc})") from exc
+
+    for mark, encoding in BYTE_ORDER_MARKS:
+        if data.startswith(mark):
+            try:
+                return data[len(mark) :].decode(encoding) if encoding != "utf-8-sig" else data.decode(encoding)
+            except UnicodeDecodeError as exc:
+                raise UnreadableManifest(f"is marked as {encoding} and is not valid {encoding} (byte {exc.start})") from exc
+
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise UnreadableManifest(f"is not text: not valid UTF-8 at byte {exc.start}, and it carries no byte-order mark") from exc
+
+    # UTF-16 and UTF-32 without a byte-order mark are valid UTF-8 as far as the decoder is concerned, and come back as a NUL between every
+    # character: no requirement matches, and the file reads as an empty project. No real manifest holds a NUL, so this costs nothing and
+    # closes the last way a perfectly good file could be reported as having nothing in it.
+    if "\x00" in text:
+        raise UnreadableManifest("is not text: it holds NUL bytes, so it is probably UTF-16 or UTF-32 saved without a byte-order mark")
+    return text
+
+
 @dataclass(frozen=True, slots=True)
 class Context:
     """Everything a reader may know besides the file in front of it.
@@ -796,34 +895,97 @@ def shown_statuses(only: str = "all") -> frozenset[str]:
 
 The verdict comes first, because that is the only part that will survive being truncated into a 40-character status bar. No date: whoever is
 reading a status bar knows what day it is, and the exit code already carries the answer.
+
+The hard part of one line is what it leaves out. This one used to say "nothing unsafe, 0 outdated (0 checked)" for a project whose only
+manifest it had failed to read, and "nothing unsafe" for five dependencies it had not resolved a single version for. A line that is the only
+thing anyone reads has to be either true or silent, so a run that did not cover the project says so before it says anything else
+(docs/adr/0009).
 """
 
 
 
 
+def _incomplete(report: Report) -> str | None:
+    """Why this run does not cover the project, in a few words, or None when it does."""
+    if report.offline:
+        return f"could not check ({report.offline})"
+    if report.unreadable:
+        files = "file" if len(report.unreadable) == 1 else "files"
+        return f"{len(report.unreadable)} dependency {files} could not be read"
+    return None
+
+
+def _unsafe(report: Report) -> list[str]:
+    counts = report.counts
+    parts = []
+    if counts["vulnerable"]:
+        parts.append(f"{counts['vulnerable']} vulnerable")
+    if report.withdrawn_count:
+        parts.append(f"{report.withdrawn_count} withdrawn")
+    if report.policy_problems:
+        entries = "entry" if len(report.policy_problems) == 1 else "entries"
+        parts.append(f"{len(report.policy_problems)} policy {entries} overdue")
+    return parts
+
+
+def _unresolved(report: Report) -> list[str]:
+    """Why some rows reached no verdict. Named, because the alternative is counting them as checked.
+
+    An `unpinned` or `unknown` finding is a dependency StockTake looked at and could say nothing about: nothing fixed a version, or the
+    registry had no answer. Rolling those into the "checked" total is how "nothing unsafe, 0 outdated (5 checked)" came to be printed for a
+    project where not one of the five had been resolved to a version.
+    """
+    counts = report.counts
+    parts = []
+    if counts["unpinned"]:
+        parts.append(f"{counts['unpinned']} unpinned")
+    if counts["unknown"]:
+        parts.append(f"{counts['unknown']} not found")
+    if report.unread_manifests:
+        files = "file" if len(report.unread_manifests) == 1 else "files"
+        parts.append(f"{len(report.unread_manifests)} unread {files}")
+    return parts
+
+
+def _checked(report: Report) -> str:
+    """The parenthesised count: how much was actually checked, and what is unaccounted for.
+
+    `(14 checked)` while every row reached a verdict, `(1 of 2 checked, 1 not found)` when one did not. The "of" form only appears when the
+    two numbers differ, because `(14 of 14 checked)` makes a reader look for the discrepancy there isn't one of.
+    """
+    total = len(report.findings)
+    resolved = total - report.counts["unpinned"] - report.counts["unknown"]
+    counted = f"{total} checked" if resolved == total else f"{resolved} of {total} checked"
+    return f"({', '.join([counted, *_unresolved(report)])})"
+
+
 def render_summary(report: Report) -> str:
     """The whole report in one line."""
-    counts = report.counts
     total = len(report.findings)
+    resolved = total - report.counts["unpinned"] - report.counts["unknown"]
 
-    if report.offline:
-        return f"stocktake: could not check ({report.offline})"
+    incomplete = _incomplete(report)
+    unsafe = _unsafe(report)
 
-    if report.failed:
-        parts = []
-        if counts["vulnerable"]:
-            parts.append(f"{counts['vulnerable']} vulnerable")
-        if counts["yanked"]:
-            parts.append(f"{counts['yanked']} withdrawn")
-        if report.policy_problems:
-            entries = "entry" if len(report.policy_problems) == 1 else "entries"
-            parts.append(f"{len(report.policy_problems)} policy {entries} overdue")
-        return f"stocktake: {', '.join(parts)} ({total} checked)"
+    # An incomplete run says so even when it did find something unsafe, with the finding named after it. The caveat is what a truncated line
+    # has to keep: a finding from a run that did not cover the project is a floor, not the answer.
+    if incomplete:
+        return f"stocktake: {', '.join([incomplete, *unsafe])}"
+
+    if unsafe:
+        return f"stocktake: {', '.join(unsafe)} {_checked(report)}"
 
     if not total:
+        # "nothing found to check" is true and, on its own, misleading for a project whose manifests are all of kinds nothing reads yet: the
+        # text report named them and the one line did not, and the one line is what goes in the CI step.
+        if report.unread_manifests:
+            files = "file" if len(report.unread_manifests) == 1 else "files"
+            return f"stocktake: nothing found to check, {len(report.unread_manifests)} unread {files}"
         return "stocktake: nothing found to check"
 
-    return f"stocktake: nothing unsafe, {counts['outdated']} outdated ({total} checked)"
+    # "nothing unsafe" is a claim about what was actually resolved, so it is not made at all when nothing was.
+    verdict = f"nothing unsafe, {report.counts['outdated']} outdated" if resolved else "nothing could be checked"
+    return f"stocktake: {verdict} {_checked(report)}"
 
 # ======================================================================================================================
 # stocktake.readers.dockerfile
@@ -873,6 +1035,29 @@ OPTIONS_WITH_ARGUMENT = frozenset(
 INSTALLERS = re.compile(r"\b(?:pip\d?|uv\s+pip|uv\s+tool|pipx)\s+install\b")
 RELEASE_DOWNLOAD = re.compile(r"github\.com/([\w.-]+/[\w.-]+)/releases/download/([^/\s\"']+)/")
 
+# A release tag need not be `v1.2.3`. Plenty of projects prefix it with their own name (`jq-1.6`, `openssl-3.0.8`) or with `release-`, and the
+# version is what follows. Trial against a real Dockerfile found `jq-1.6` dropped on the floor: a pinned binary went unchecked, and the report
+# had nothing to say about it either way, which is the quiet gap this tool exists to close.
+#
+# The version part must contain a dot. That leaves out `nightly-20240101` and `build-7`, which are not releases: they would be asked about and
+# then reported as something, and saying something wrong about a tag nobody pinned as a version is worse than saying nothing.
+PREFIXED_TAG = re.compile(r"^[A-Za-z][\w.]*[-_/]v?(\d\w*(?:\.\w+)+)$")
+
+
+def tag_version(tag: str) -> str | None:
+    """The version a GitHub release tag names, or None when it does not name one.
+
+    `v0.0.0` is skipped: projects park model files and other assets under it, and treating it as a release produced a false "major update
+    available" in the original.
+    """
+    version = tag.removeprefix("v")
+    if not re.match(r"\d", version):
+        prefixed = PREFIXED_TAG.match(tag)
+        if prefixed is None:
+            return None
+        version = prefixed.group(1)
+    return None if version == "0.0.0" else version
+
 
 def is_dockerfile(path: Path) -> bool:
     name = path.name
@@ -913,8 +1098,8 @@ def pip_requirements(command: str) -> list[tuple[str, str | None, str]]:
 def github_downloads(text: str) -> list[tuple[str, str, int]]:
     """Every GitHub release binary the file downloads, as (owner/repo, version, line).
 
-    The tag is usually a shell variable, so it is resolved against the nearest earlier assignment of that name. `v0.0.0` is skipped: projects
-    park model files and other assets under it, and treating it as a release produced a false "major update available" in the original.
+    The tag is usually a shell variable, so it is resolved against the nearest earlier assignment of that name. Which tags count as naming
+    a version is `tag_version`.
     """
     found: list[tuple[str, str, int]] = []
     for match in RELEASE_DOWNLOAD.finditer(text):
@@ -923,8 +1108,8 @@ def github_downloads(text: str) -> list[tuple[str, str, int]]:
             assignments = list(re.finditer(rf"(?<!\w){variable}=[\"']?v?([0-9][\w.]*)", text[: match.start()]))
             if assignments:
                 tag = re.sub(rf"\$\{{?{variable}[^}}]*\}}?", assignments[-1].group(1), tag)
-        version = tag.removeprefix("v")
-        if re.match(r"\d", version) and version != "0.0.0":
+        version = tag_version(tag)
+        if version is not None:
             found.append((repo, version, text[: match.start()].count("\n") + 1))
     return found
 
@@ -1071,10 +1256,10 @@ def read_package_json(path: Path, text: str, context: Context) -> Iterable[Dep]:
     """Dependencies declared in a package.json, at the version installed in node_modules."""
     try:
         data = json.loads(text)
-    except ValueError:
-        return  # a broken package.json is that project's problem to report, not this tool's to crash on
+    except ValueError as exc:
+        raise UnreadableManifest(f"is not valid JSON ({exc})") from exc
     if not isinstance(data, dict):
-        return
+        raise UnreadableManifest("is valid but is not a table at the top level, so there is nothing in it a reader can use")
 
     installed = _installed_lookup(path.parent, context.root)
     for section, role in SECTIONS:
@@ -1125,10 +1310,10 @@ def read_package_lock(path: Path, text: str, context: Context) -> Iterable[Dep]:
     """Packages resolved by a package-lock.json."""
     try:
         data = json.loads(text)
-    except ValueError:
-        return
+    except ValueError as exc:
+        raise UnreadableManifest(f"is not valid JSON ({exc})") from exc
     if not isinstance(data, dict):
-        return
+        raise UnreadableManifest("is valid but is not a table at the top level, so there is nothing in it a reader can use")
     # One finding per name and version. A lock file lists the same package at several depths; the extra rows say nothing new.
     for name, version in dict.fromkeys(_locked_packages(data)):
         yield Dep("npm", name, version, context.source(path), f"=={version}", "locked")
@@ -1190,8 +1375,8 @@ def read_toml_lock(path: Path, text: str, context: Context) -> Iterable[Dep]:
     """Packages resolved by a uv, pdm or poetry lock file."""
     try:
         data = tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
-        return  # a damaged lock file is the project's problem to notice, not this tool's to crash on
+    except tomllib.TOMLDecodeError as exc:
+        raise UnreadableManifest(f"is not valid TOML ({exc})") from exc
     for name, version in _toml_packages(data):
         yield Dep("PyPI", name, version, context.source(path), f"=={version}", "locked")
 
@@ -1201,10 +1386,10 @@ def read_pipfile_lock(path: Path, text: str, context: Context) -> Iterable[Dep]:
     """Packages resolved by a Pipfile.lock, keeping the section each one came from."""
     try:
         data = json.loads(text)
-    except ValueError:
-        return
+    except ValueError as exc:
+        raise UnreadableManifest(f"is not valid JSON ({exc})") from exc
     if not isinstance(data, dict):
-        return
+        raise UnreadableManifest("is valid but is not a table at the top level, so there is nothing in it a reader can use")
     for section, role in (("default", "locked"), ("develop", "dev")):
         entries = data.get(section)
         if not isinstance(entries, dict):
@@ -1271,8 +1456,8 @@ def read_pyproject(path: Path, text: str, context: Context) -> Iterable[Dep]:
     """Dependencies declared in pyproject.toml, at the version installed in this environment."""
     try:
         data = tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
-        return  # a broken pyproject.toml is that project's problem to report, not this tool's to crash on
+    except tomllib.TOMLDecodeError as exc:
+        raise UnreadableManifest(f"is not valid TOML ({exc})") from exc
     for entry, role in _declared(data):
         parsed = parse_requirement(entry)
         if parsed is None:
@@ -1299,8 +1484,8 @@ def read_pipfile(path: Path, text: str, context: Context) -> Iterable[Dep]:
     """
     try:
         data = tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
-        return
+    except tomllib.TOMLDecodeError as exc:
+        raise UnreadableManifest(f"is not valid TOML ({exc})") from exc
     for section, role in (("packages", "runtime"), ("dev-packages", "dev")):
         entries = data.get(section)
         if not isinstance(entries, dict):
@@ -1326,6 +1511,11 @@ installed version is consulted only where there is no pin.
 The file format is mostly "one requirement per line", with four things that catch a naive reader out: backslash continuations, `--hash=`
 digests trailing a requirement, pip options that are not requirements at all (`-r`, `-e`, `--index-url`), and direct references
 (`name @ https://...`) where the URL is the version and there is nothing to ask a registry about.
+
+`-r` and `-c` are followed, but only to files the walk would not reach anyway. A project that splits its pins into `requirements/base.txt`
+has every one of those files walked on its own account, and following the include as well would report each pin twice. A project that writes
+`-r deps/pinned.in` does not, and trial against a real one found a pin in such a file going unreported: nothing said it had been missed,
+which is the failure mode this tool is for.
 """
 
 
@@ -1340,6 +1530,29 @@ DEV_WORDS = frozenset({"dev", "develop", "development", "test", "tests", "lint",
 
 def is_requirements_file(path: Path) -> bool:
     return any(fnmatch(path.name, pattern) for pattern in FILE_PATTERNS)
+
+
+# `-r other.txt`, `--requirement=other.txt`, and the same two for constraints. The target may be quoted, which is how a path with a
+# space in it is written, and an unquoted one runs to the first space.
+INCLUDE = re.compile(r"""^(?:-r|--requirement|-c|--constraint)[=\s]+(?:"([^"]+)"|'([^']+)'|(\S+))""")
+
+
+def included_file(line: str, path: Path) -> Path | None:
+    """The file a `-r` or `-c` line points at, resolved against the file holding the line, or None when the line is not an include.
+
+    Resolved against the including file's own directory, which is pip's rule and not the project root: `requirements/dev.txt` saying
+    `-r base.txt` means `requirements/base.txt`.
+    """
+    text = re.sub(r"(^|\s)#.*$", "", line).strip()
+    match = INCLUDE.match(text)
+    if match is None:
+        return None
+    target = next(group for group in match.groups() if group is not None)
+    if target.startswith(("http://", "https://")):
+        return None  # pip will fetch it; a reader does not touch the network (docs/adr/0003)
+    # Normalised, not resolved: a `-r ../shared.in` has to lose its `..` before the report can name it relative to the project root, and
+    # resolving would also follow symlinks, which would make the reported path somewhere the reader never wrote.
+    return Path(os.path.normpath(path.parent / target))
 
 
 def requirement_in(line: str) -> str:
@@ -1361,11 +1574,37 @@ def role_of(path: Path) -> str:
     return "dev" if any(word in DEV_WORDS for word in words) else "runtime"
 
 
-@reader("python", is_requirements_file)
-def read_requirements(path: Path, text: str, context: Context) -> Iterable[Dep]:
-    """Dependencies listed in a requirements or constraints file."""
+def _should_follow(included: Path, context: Context, seen: set[Path]) -> bool:
+    """Whether an included file is one this reader has to open itself.
+
+    No to a file the walk reaches anyway, or its pins would be reported twice. No to a file outside the project, because the report names
+    sources relative to the root and there is no honest way to write a path that is not under it. No to one already followed, which is what
+    keeps a pair of files that include each other from recursing forever.
+    """
+    if is_requirements_file(included) or included in seen:
+        return False
+    try:
+        return included.resolve().is_relative_to(context.root.resolve()) and included.is_file()
+    except OSError:
+        return False
+
+
+def _requirements(path: Path, text: str, context: Context, seen: set[Path]) -> Iterator[Dep]:
     role = role_of(path)
     for number, line in logical_lines(text):
+        included = included_file(line, path)
+        if included is not None:
+            if not _should_follow(included, context, seen):
+                continue
+            seen.add(included)
+            try:
+                included_text = read_manifest(included)
+            except UnreadableManifest as exc:
+                # A file named in a `-r` is a file this reader claimed, so failing to read it is reported like any other unreadable manifest.
+                # The include resolving quietly to nothing is the case that has to be impossible.
+                raise UnreadableManifest(f"includes {included.name}, which {exc.reason}") from exc
+            yield from _requirements(included, included_text, context, seen)
+            continue
         entry = requirement_in(line)
         if not entry:
             continue
@@ -1374,6 +1613,12 @@ def read_requirements(path: Path, text: str, context: Context) -> Iterable[Dep]:
             continue
         name, pinned, spec = parsed
         yield Dep("PyPI", name, pinned or context.installed(name), context.source(path, number), spec, role)
+
+
+@reader("python", is_requirements_file)
+def read_requirements(path: Path, text: str, context: Context) -> Iterable[Dep]:
+    """Dependencies listed in a requirements or constraints file, and in any file it includes that the walk would not reach."""
+    yield from _requirements(path, text, context, {path})
 
 # ======================================================================================================================
 # stocktake.readers.workflows
@@ -1647,10 +1892,18 @@ class PyPI:
 
 Every field, stable keys, one object. `fix_target` is computed here because a caller that has to work out the upgrade target itself would
 have to reimplement the rule about backported fixes, and get it wrong.
+
+Two fields exist for the benefit of whoever automates against this. `schema_version` is bumped when a key changes meaning or disappears, so a
+script can refuse a shape it does not know rather than silently reading a renamed field as absent. `complete` is the one field a gate should
+read first: `failed: false` on its own has always been ambiguous between "this project is fine" and "this run did not manage to look", and a
+machine reader cannot tell those apart from a prose note.
 """
 
 
 
+
+# Bumped whenever a key is removed or changes meaning. Adding a key does not bump it: a reader that ignores unknown keys keeps working.
+SCHEMA_VERSION = 1
 
 
 def _finding(finding: Finding) -> dict[str, Any]:
@@ -1661,30 +1914,53 @@ def _finding(finding: Finding) -> dict[str, Any]:
         "latest": finding.latest,
         "update": finding.update,
         "note": finding.note,
+        # True whenever the registry says this exact release was withdrawn, including when `status` is `vulnerable` because advisories are
+        # the more actionable of the two. Reading it off the status alone undercounts.
+        "withdrawn": finding.withdrawn,
         "advisories": [asdict(a) for a in finding.advisories],
         "fix_target": fix_target(finding.advisories, finding.dep.version or "0", finding.dep.ecosystem) if finding.advisories else None,
     }
 
 
-def as_dict(report: Report) -> dict[str, Any]:
+def _ordered(report: Report, only: str) -> list[Finding]:
+    """The findings a narrowed report shows, worst first.
+
+    The same order the text report uses, for the same reason: a consumer that takes the first few findings should get the worst few.
+    """
+    shown = shown_statuses(only)
+    rows = [f for f in report.findings if f.status in shown]
+    return sorted(rows, key=lambda f: (f.severity != "fail", -f.rank, -len(f.advisories), f.dep.source, f.dep.name))
+
+
+def as_dict(report: Report, only: str = "all") -> dict[str, Any]:
     """The report as plain data, for a caller that wants it in process rather than as text."""
     return {
+        "schema_version": SCHEMA_VERSION,
+        "stocktake_version": __version__,
         "date": report.today,
+        # Whether this run actually covers the project. False when the registries could not be reached or a manifest could not be read, and
+        # the field to gate on: a clean `failed` from an incomplete run means nothing.
+        "complete": report.complete,
         "offline": report.offline,
         "failed": report.failed,
+        "only": only,
         "counts": report.counts,
+        # Dependencies at a withdrawn release, however they are classified. `counts["yanked"]` counts only those with no advisory as well.
+        "withdrawn_count": report.withdrawn_count,
         "notes": list(report.notes),
         "config_source": report.config_source,
         "policy_problems": list(report.policy_problems),
+        # Manifests StockTake meant to read and could not. Never narrowed by `only`: it is why the rest of the report is partial.
+        "unreadable": [asdict(item) for item in report.unreadable],
         "unread_manifests": list(report.unread_manifests),
         # Manifests the project has accepted as unreadable. Not in the text report, because it asked not to be nagged — but never invisible.
         "accepted_unread": list(report.accepted_unread),
-        "findings": [_finding(f) for f in report.findings],
+        "findings": [_finding(f) for f in _ordered(report, only)],
     }
 
 
-def render_json(report: Report) -> str:
-    return json.dumps(as_dict(report), indent=2)
+def render_json(report: Report, only: str = "all") -> str:
+    return json.dumps(as_dict(report, only), indent=2)
 
 # ======================================================================================================================
 # stocktake.report.sarif
@@ -1718,6 +1994,7 @@ LEVELS: dict[str, str] = {
 
 POLICY_RULE = "policy"
 UNREAD_RULE = "unread"
+UNREADABLE_RULE = "unreadable"
 
 RULES: dict[str, tuple[str, str]] = {
     "vulnerable": ("Vulnerable dependency", "A dependency is at a version with a known published security advisory against it."),
@@ -1729,6 +2006,11 @@ RULES: dict[str, tuple[str, str]] = {
     UNREAD_RULE: (
         "Manifest not read",
         "This file declares dependencies of a kind StockTake has no reader for, so nothing in it was checked.",
+    ),
+    UNREADABLE_RULE: (
+        "Manifest could not be read",
+        "StockTake has a reader for this file and it failed: the file is damaged, or not text. Nothing in it was checked, so this run does "
+        "not cover the whole project.",
     ),
 }
 
@@ -1778,7 +2060,7 @@ def _result(finding: Finding) -> dict[str, Any]:
 
 def _rules_used(ids: list[str]) -> list[dict[str, Any]]:
     """One rule per id actually used, in a stable order. SARIF wants every ruleId a result refers to declared here."""
-    order = [*STATUSES, POLICY_RULE, UNREAD_RULE]
+    order = [*STATUSES, POLICY_RULE, UNREADABLE_RULE, UNREAD_RULE]
     return [
         {
             "id": rule_id,
@@ -1786,7 +2068,7 @@ def _rules_used(ids: list[str]) -> list[dict[str, Any]]:
             "shortDescription": {"text": RULES[rule_id][0]},
             "fullDescription": {"text": RULES[rule_id][1]},
             "help": {"text": RULES[rule_id][1]},
-            "defaultConfiguration": {"level": LEVELS.get(rule_id, "error" if rule_id == POLICY_RULE else "note")},
+            "defaultConfiguration": {"level": LEVELS.get(rule_id, "error" if rule_id in (POLICY_RULE, UNREADABLE_RULE) else "note")},
         }
         for rule_id in order
         if rule_id in set(ids) and rule_id in RULES
@@ -1811,6 +2093,19 @@ def as_sarif(report: Report, only: str = "all") -> dict[str, Any]:
             for problem in report.policy_problems
         ]
 
+    # Never narrowed by `only`, and an error rather than a note. Everything else here is something that was found; this is a part of the
+    # project that was not looked at, which is the one thing a narrowed report must not be able to hide.
+    results += [
+        {
+            "ruleId": UNREADABLE_RULE,
+            "level": "error",
+            "message": {"text": f"This file could not be read, so nothing in it was checked: it {item.reason}."},
+            "locations": [_location(item.path)],
+            "partialFingerprints": {"stocktakeFinding": f"unreadable/{item.path}"},
+        }
+        for item in report.unreadable
+    ]
+
     if "unpinned" in shown:
         results += [
             {
@@ -1823,7 +2118,15 @@ def as_sarif(report: Report, only: str = "all") -> dict[str, Any]:
             for name in report.unread_manifests
         ]
 
-    notifications = [{"level": "warning", "message": {"text": note}} for note in report.notes]
+    notifications: list[dict[str, Any]] = [{"level": "warning", "message": {"text": note}} for note in report.notes]
+    if report.unreadable:
+        files = "file" if len(report.unreadable) == 1 else "files"
+        notifications.append(
+            {
+                "level": "error",
+                "message": {"text": f"{len(report.unreadable)} dependency {files} could not be read, so this run is incomplete."},
+            }
+        )
     if report.offline:
         notifications.append({"level": "error", "message": {"text": f"The check could not be completed: {report.offline}"}})
 
@@ -1842,7 +2145,9 @@ def as_sarif(report: Report, only: str = "all") -> dict[str, Any]:
                 },
                 "invocations": [
                     {
-                        "executionSuccessful": report.offline is None,
+                        # False for an unreadable manifest as well as for an unreachable registry: both mean this run did not cover the
+                        # project, and code scanning showing a green run for either is the failure this field exists to prevent.
+                        "executionSuccessful": report.complete,
                         **({"toolExecutionNotifications": notifications} if notifications else {}),
                     }
                 ],
@@ -1882,17 +2187,31 @@ def _source_width(findings: Sequence[Finding]) -> int:
 
 
 def _rows(report: Report, status: str) -> list[Finding]:
-    """The findings of one status, ordered by where they came from, so the report reads the way the project is laid out."""
-    return sorted((f for f in report.findings if f.status == status), key=lambda f: (f.dep.source, f.dep.name))
+    """The findings of one status, in the order they should be acted on.
+
+    Within `vulnerable` that is worst severity first, then most advisories: the list is read from the top and whoever reads it should meet the
+    critical finding before a low one, not whichever happens to sit in a file named `a`. Every other status keeps file order, so the report
+    reads the way the project is laid out.
+    """
+    rows = [f for f in report.findings if f.status == status]
+    if status != "vulnerable":  # no other status carries a severity to sort by
+        return sorted(rows, key=lambda f: (f.dep.source, f.dep.name))
+    return sorted(rows, key=lambda f: (-f.rank, -len(f.advisories), f.dep.source, f.dep.name))
 
 
 def _headline(report: Report) -> str:
     counts = report.counts
     line = (
         f"Dependency check {report.today}: {len(report.findings)} checked, "
-        f"{counts['vulnerable']} vulnerable, {counts['yanked']} withdrawn, {counts['outdated']} outdated, {counts['unpinned']} unpinned"
+        f"{counts['vulnerable']} vulnerable, {report.withdrawn_count} withdrawn, {counts['outdated']} outdated, {counts['unpinned']} unpinned"
     )
-    return f"{line}  [{report.offline}]" if report.offline else line
+    # Both of these say the report below is partial, which matters more than anything in it, so both go on the first line.
+    if report.offline:
+        line += f"  [{report.offline}]"
+    if report.unreadable:
+        files = "file" if len(report.unreadable) == 1 else "files"
+        line += f"  [{len(report.unreadable)} {files} could not be read]"
+    return line
 
 
 def _vulnerable_row(finding: Finding, width: int, all_advisories: bool, top: int) -> list[str]:
@@ -1902,7 +2221,8 @@ def _vulnerable_row(finding: Finding, width: int, all_advisories: bool, top: int
     target = fix_target(finding.advisories, dep.version or "0", dep.ecosystem)
     fix = f"; upgrade to {target} or newer" if target else "; no fixed version named"
     # Two spaces after the version: "pillow 9.0.0 52 advisories" otherwise reads as though the version were "9.0.0 52".
-    lines = [f"  {dep.source:<{width}} {dep.name} {dep.version}  {len(finding.advisories)} {plural} ({tally}){fix}"]
+    withdrawn = "; withdrawn by its author" if finding.withdrawn else ""
+    lines = [f"  {dep.source:<{width}} {dep.name} {dep.version}  {len(finding.advisories)} {plural} ({tally}){fix}{withdrawn}"]
 
     shown = finding.advisories if all_advisories else finding.advisories[:top]
     lines += [f"      {a.id} {a.label}: {a.summary}" for a in shown]
@@ -1919,12 +2239,23 @@ def render_text(report: Report, only: str = "all", all_advisories: bool = False,
 
     if not report.findings:
         # Silence looks like success, and it almost never is. A project with no dependencies at all is far rarer than a misconfigured scan.
-        lines += [
-            "",
-            "Nothing was found to check. If that is a surprise, the project's excludes or enabled ecosystems are the place to look.",
-        ]
+        # Which explanation to offer depends on why: pointing at the excludes is unhelpful advice when the real reason is listed below.
+        if report.unreadable:
+            why = "Every dependency file found could not be read, so nothing could be checked. The reasons are below."
+        elif report.unread_manifests:
+            why = (
+                "Nothing could be checked: every dependency file found is of a kind StockTake has no reader for yet. They are named below."
+            )
+        else:
+            why = "Nothing was found to check. If that is a surprise, the project's excludes or enabled ecosystems are the place to look."
+        lines += ["", why]
 
-    # Anything that affects how much of the report can be trusted comes before the findings themselves.
+    # Anything that affects how much of the report can be trusted comes before the findings themselves, worst first. An unreadable manifest
+    # leads, because it is the one caveat that makes everything after it an incomplete answer rather than a qualified one.
+    if report.unreadable:
+        lines += ["", "UNREADABLE (StockTake meant to read these and could not, so nothing in them was checked)"]
+        lines += [f"  {item.path} {item.reason}" for item in report.unreadable]
+
     for note in report.notes:
         lines += ["", f"NOTE: {note}"]
 
@@ -2000,6 +2331,12 @@ DEFAULT_EXCLUDES: tuple[str, ...] = (
 
 DEFAULT_CACHE_TTL_HOURS = 6.0
 
+# Every key a config file may set, and every key `[cache]` may set. A file is refused for anything else, which is the only way a typo gets
+# noticed: `excludes = [".venv"]` was read as a file with no excludes at all, and silently scanning a virtual environment looks exactly like
+# scanning a project with a great many dependencies.
+KNOWN_KEYS: frozenset[str] = frozenset({"exclude", "ecosystems", "accept_unread", "environment", "cache", "policy"})
+KNOWN_CACHE_KEYS: frozenset[str] = frozenset({"ttl_hours"})
+
 
 class ConfigError(ValueError):
     """The config file could not be read. Said plainly and at once, rather than guessing at a default."""
@@ -2068,6 +2405,7 @@ def _cache_ttl_hours(path: Path, table: Mapping[str, Any]) -> float:
     cache = table.get("cache") or {}
     if not isinstance(cache, Mapping):
         raise ConfigError(f"{path}: `[cache]` must be a table")
+    _reject_unknown_keys(path, cache, KNOWN_CACHE_KEYS, "unknown setting in `[cache]`")
     hours = cache.get("ttl_hours", DEFAULT_CACHE_TTL_HOURS)
     if isinstance(hours, bool) or not isinstance(hours, int | float) or hours <= 0:
         raise ConfigError(f"{path}: `cache.ttl_hours` must be a positive number")
@@ -2083,7 +2421,33 @@ def _environment(path: Path, table: Mapping[str, Any]) -> str | None:
     return value
 
 
+def _suggest(unknown: str, known: frozenset[str]) -> str:
+    """A `did you mean` for a misspelt key, when one known key is obviously what was meant.
+
+    Silent when nothing is close enough: a wrong guess is worse than none, because it sends the reader to rewrite a line that was not the
+    problem.
+    """
+    close = [name for name in sorted(known) if name.startswith(unknown[:4]) or unknown.startswith(name[:4]) or name == unknown.rstrip("s")]
+    return f"; did you mean `{close[0]}`?" if close else ""
+
+
+def _reject_unknown_keys(path: Path, table: Mapping[str, Any], known: frozenset[str], where: str) -> None:
+    """Refuse a key StockTake does not recognise, rather than ignoring it.
+
+    This module's docstring has always claimed every value is validated as it is read, and for the values named here it was true — but a key
+    nobody named was not a value, so it went straight past. The whole point of refusing a config file StockTake cannot understand is that a
+    setting which has silently stopped applying is the one failure a policy file must not have, and a misspelt key is exactly that.
+    """
+    unknown = sorted(key for key in table if key not in known)
+    if not unknown:
+        return
+    named = ", ".join(f"`{key}`" for key in unknown)
+    suggestion = _suggest(unknown[0], known) if len(unknown) == 1 else ""
+    raise ConfigError(f"{path}: {where}: {named}{suggestion}. Valid: {', '.join(sorted(known))}")
+
+
 def _build(path: Path, table: Mapping[str, Any]) -> Config:
+    _reject_unknown_keys(path, table, KNOWN_KEYS, "unknown setting")
     policy = table.get("policy") or {}
     if not isinstance(policy, Mapping):
         raise ConfigError(f"{path}: `[policy]` must be a table")
@@ -2232,11 +2596,18 @@ def _judge(dep: Dep, answer: Answer, advisories: tuple[Advisory, ...], held: fro
         return Finding(dep, "unknown", "info", note="not found on the registry")
     if isinstance(answer, str):
         return Finding(dep, "unknown", "info", note=answer)
+    # Asked before the advisories are weighed, not after. Both are reasons to fail, so whichever is reported the build stops either way — but
+    # the fact was being lost: the status went to `vulnerable`, nothing else recorded the withdrawal, and the headline then said
+    # "0 withdrawn" about a project with a withdrawn release in it.
+    withdrawn = dep.version in answer.withdrawn
     if advisories:
         plural = "advisory" if len(advisories) == 1 else "advisories"
-        return Finding(dep, "vulnerable", "fail", answer.latest, advisories=advisories, note=f"{len(advisories)} known {plural}")
-    if dep.version in answer.withdrawn:
-        return Finding(dep, "yanked", "fail", answer.latest, note="this release was withdrawn by its author")
+        note = f"{len(advisories)} known {plural}"
+        if withdrawn:
+            note += "; this release was also withdrawn by its author"
+        return Finding(dep, "vulnerable", "fail", answer.latest, advisories=advisories, note=note, withdrawn=withdrawn)
+    if withdrawn:
+        return Finding(dep, "yanked", "fail", answer.latest, note="this release was withdrawn by its author", withdrawn=True)
     if is_newer(answer.latest, dep.version, dep.ecosystem, moving=dep.moving):
         kind = update_kind(answer.latest, dep.version)
         if normalize(dep.name) in held:
@@ -2260,6 +2631,7 @@ def evaluate(
     unread: Unread | None = None,
     notes: Sequence[str] = (),
     config_source: str | None = None,
+    unreadable: Sequence[Unreadable] = (),
 ) -> Report:
     """What one run of the check found."""
     today = today or datetime.now(UTC).date()
@@ -2296,6 +2668,7 @@ def evaluate(
         accepted_unread=unread.accepted,
         notes=tuple(notes),
         config_source=config_source,
+        unreadable=tuple(unreadable),
     )
 
 # ======================================================================================================================
@@ -2482,8 +2855,20 @@ def _declares_npm_dependencies(text: str) -> bool:
     )
 
 
-def scan(root: Path, config: Config | None = None, installed: InstalledFn | None = None, groups: Sequence[str] | None = None) -> list[Dep]:
-    """Every dependency the project declares, in the order the files were walked.
+@dataclass(frozen=True, slots=True)
+class Scan:
+    """What walking a project turned up: what it declares, and what could not be read.
+
+    The second half is not an afterthought. A scan that returned only the dependencies had nowhere to put "I was meant to read this file and
+    failed", so it dropped it, and a project whose `package.json` was truncated got a clean report (docs/adr/0009).
+    """
+
+    deps: list[Dep] = field(default_factory=list)
+    unreadable: list[Unreadable] = field(default_factory=list)
+
+
+def scan(root: Path, config: Config | None = None, installed: InstalledFn | None = None, groups: Sequence[str] | None = None) -> Scan:
+    """Every dependency the project declares, in the order the files were walked, and every manifest that defeated its reader.
 
     `installed` answers what is present in the project's environment; the default works it out with `installed_for`.
 
@@ -2495,18 +2880,25 @@ def scan(root: Path, config: Config | None = None, installed: InstalledFn | None
     chosen = groups if groups is not None else config.ecosystems
     active = [r for r in READERS if chosen is None or r.group in chosen]
 
-    deps: list[Dep] = []
+    found = Scan()
     for path in iter_files(root, config.excludes):
         wanted = [r for r in active if r.interested(path)]
         if not wanted:
             continue
+        relative = path.relative_to(root).as_posix()
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue  # unreadable is not the same as absent, but neither is it this tool's business to fix
+            text = read_manifest(path)
+        except UnreadableManifest as exc:
+            found.unreadable.append(Unreadable(relative, exc.reason))
+            continue
         for one in wanted:
-            deps.extend(one.read(path, text, context))
-    return deps
+            try:
+                # Readers are generators, so the reading happens here and a failure surfaces here. Whatever a reader managed to yield before
+                # giving up is kept: those dependencies are real, and the file is reported as unreadable alongside them.
+                found.deps.extend(one.read(path, text, context))
+            except UnreadableManifest as exc:
+                found.unreadable.append(Unreadable(relative, exc.reason))
+    return found
 
 
 def unread_manifests(root: Path, config: Config | None = None) -> Unread:
@@ -2528,10 +2920,10 @@ def unread_manifests(root: Path, config: Config | None = None) -> Unread:
             continue
         if path.name == "package.json":
             try:
-                if not _declares_npm_dependencies(path.read_text(encoding="utf-8", errors="replace")):
+                if not _declares_npm_dependencies(read_manifest(path)):
                     continue
-            except OSError:
-                continue
+            except UnreadableManifest:
+                pass  # it could not be read, so whether it declares anything is unknown — which is a reason to name it, not to drop it
         relative = path.relative_to(root).as_posix()
         (accepted if excluded(relative, config.accept_unread) else reported).append(relative)
     return Unread(tuple(sorted(reported)), tuple(sorted(accepted)))
@@ -2605,12 +2997,21 @@ def run_check(
             raise ConfigError(f"no Python environment found at {chosen}")
         lookup, environment_found = found.version, found.found
 
-    deps = scan(root, settings, lookup)
+    scanned = scan(root, settings, lookup)
     # Nothing to say when the caller supplied the answers itself: advice about where to find them is not ours to give.
-    notes = [] if installed is not None else notes_about(deps, environment_found)
+    notes = [] if installed is not None else notes_about(scanned.deps, environment_found)
 
     asking = registries if registries is not None else Registries(Cache(ttl=settings.cache_ttl_seconds, refresh=refresh))
-    report = evaluate(deps, asking, settings.policy, today, unread_manifests(root, settings), notes, settings.source)
+    report = evaluate(
+        scanned.deps,
+        asking,
+        settings.policy,
+        today,
+        unread_manifests(root, settings),
+        notes,
+        settings.source,
+        scanned.unreadable,
+    )
     asking.flush()
     return report
 
@@ -2622,6 +3023,25 @@ def skip_reason(report: Report) -> str | None:
     check like this gets switched off.
     """
     return f"cannot reach the registries ({report.offline})" if report.offline else None
+
+
+def incomplete_text(report: Report) -> str | None:
+    """What to say when part of the project could not be read at all, or None when all of it was.
+
+    Kept apart from `failure_text`, which is about what was found. This is about what was never looked at, and it is the more serious of the
+    two: a wrong answer gets argued with, while a missing one reads as a clean bill of health. It raises rather than skips because a test
+    suite has no exit code to carry the distinction, and a warning in a pytest summary is how this became invisible in the first place
+    (docs/adr/0009).
+    """
+    if not report.unreadable:
+        return None
+    count = len(report.unreadable)
+    files = "file" if count == 1 else "files"
+    lines = [f"StockTake could not read {count} dependency {files}, so this project was not fully checked:"]
+    lines += [f"  {item.path} {item.reason}" for item in report.unreadable]
+    lines.append("")
+    lines.append("Fix the file, or exclude it in the project's config if it is not meant to be read.")
+    return "\n".join(lines)
 
 
 def update_warning(report: Report) -> str | None:
