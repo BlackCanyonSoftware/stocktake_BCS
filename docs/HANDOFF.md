@@ -1,7 +1,7 @@
 # StockTake: handoff
 
 ## Current state
-**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1 and M5.2**: the responses to the first two outside trial reports. 503 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. The next session starts Milestone 6, the one decision M5 left to the owner, the policy question M5.2 raised, or the next trial report.
+**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1, M5.2 and M5.3**: the responses to the first two outside trial reports. 528 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. The next session starts Milestone 6, the one decision M5 left to the owner, or the next trial report.
 
 **It has been run against ten real projects** — well over two thousand dependencies, Python, Node and mixed — and found vulnerable dependencies in nearly every one. Three of its own bugs were found that way and only that way. Two more projects have been handed it cold and written down what happened: [Can-AI](feedback/2026-10-30-claude-code-session.md), which found three P0s, and [Pixel Galaxy Studio](feedback/2026-10-30-claude-code-windows-readme-cold-trial.md), which found none and instead found what the four untried adoption routes cost.
 
@@ -16,7 +16,7 @@ Pushed through `1b01058`, and CI passes on Windows and Ubuntu across Python 3.11
 ```bash
 py -3.11 -m venv .venv
 ./.venv/Scripts/python -m pip install -e ".[dev]"   # .venv/bin/python on macOS and Linux
-./.venv/Scripts/python -m pytest                    # 503 tests, ~6s (includes the live check, via the plugin)
+./.venv/Scripts/python -m pytest                    # 528 tests, ~6s (includes the live check, via the plugin)
 ./.venv/Scripts/stocktake vendor vendored/          # after ANY change to the core, or a test fails
 ./.venv/Scripts/python -m stocktake                 # check this project itself
 ```
@@ -49,14 +49,13 @@ The owner pushed through `1b01058` on 2026-10-30, and everything that could not 
 **One thing that first run showed:** the code-scanning job installed `-e .` without the dev extra, so this project's own dev dependencies had nothing to resolve against and arrived in the security tab as four `unpinned` notes about its own tooling — correct, and useless. The job now installs `.[dev]`. Four open alerts from that first run will be superseded by the next one.
 
 ## Work in progress
-None. M0 to M5, M5.1 and M5.2 are complete; M6 has not been started.
+None. M0 to M5, M5.1, M5.2 and M5.3 are complete; M6 has not been started.
 
 ## Next steps
 1. **One decision the owner has to make**, recorded in [ROADMAP.md](ROADMAP.md) under M5 and in the PRD's open questions: whether to publish to PyPI. The metadata is ready and the name was free on 2026-10-30. Not a coding task.
 2. **Adoption in the owner's other projects belongs to those projects' own sessions**, not to this one. They have been *read* — which is how three bugs were found — and nothing in any of them has been changed. The findings for each are listed further down, so a session working in one of them can start from a concrete list.
 3. **Milestone 6** when there is appetite: container tags and the YAML lock files, both carried over from M3 with reasons.
-4. **One policy question, and it is the only feature request from either trial worth a yes.** There is no way to accept a *vulnerable* package wholesale with a reason and a date. `hold_back` covers being out of date, not being vulnerable, so accepting a known advisory means one `ignore_advisories` entry per id — 58 of them for one real project's `electron` and `tar` findings. Nobody writes that, so the real answer becomes "do not gate on it", which is worse than a policy entry. The shape asked for is `ignore_package` with a version, a reason and an `until`. Held because it widens what a policy can hide, and the per-id friction is exactly what stops a policy file becoming a blanket — so it wants deciding with the owner rather than in passing. Full reasoning in [ROADMAP.md](ROADMAP.md) under the second trial.
-5. **The next trial report.** The owner intends to hand StockTake to several more of their projects the way Can-AI was handed it, and to bring each report back here. The pattern to repeat: commit the report unchanged first, reproduce its headline findings before touching anything, then act. Everything from the first report that was deliberately **not** done is in [ROADMAP.md](ROADMAP.md) under "From the Can-AI trial", with the reason for each — read that before re-deciding any of it. The format reports follow is [feedback/README.md](feedback/README.md).
+4. **The next trial report.** The owner intends to hand StockTake to several more of their projects the way Can-AI was handed it, and to bring each report back here. The pattern to repeat: commit the report unchanged first, reproduce its headline findings before touching anything, then act. Everything from the first report that was deliberately **not** done is in [ROADMAP.md](ROADMAP.md) under "From the Can-AI trial", with the reason for each — read that before re-deciding any of it. The format reports follow is [feedback/README.md](feedback/README.md).
 
 **Known findings in the author's own repositories. Nothing was changed in any of them, and none of this has been acted on.**
 - `Brand Logos`: installed Pillow 11.2.1 has 58 advisories (5 critical), fonttools 4.58.0 has 1. Both declared as ranges, so the pins are not wrong — the installed versions are old. Its CI pins `actions/checkout@v4` and `actions/setup-python@v5`, three majors behind. Needs `--environment` (it installs into the global Python).
@@ -142,6 +141,15 @@ The owner has about ten repositories available for this, and the list is the mos
 In [PRD.md](PRD.md) under "Open questions". None block M1. The one worth deciding soonest: whether to publish `stocktake` to PyPI now (the name is free as of 2026-10-29) or wait until there are two real consumers.
 
 ## Session log
+### Session 11 - 2026-10-30
+Added `[[policy.ignore_package]]`, the one feature request from either trial worth a yes, after the owner said yes to it. A project can now accept a vulnerable package at a version in one entry instead of one entry per advisory id - 58 of them for one real project's `electron` and `tar` findings, which is a file nobody writes, and the trial's own conclusion was therefore to not gate on the check at all. [ADR 0011](adr/0011-accepting-a-vulnerable-package.md) records the counter-argument it had been held on, and what changed: the per-advisory friction was protecting the wrong thing, because a gate that is off reports nothing.
+
+The design point worth not re-litigating: **a suppression is never a silence.** An accepted finding keeps a new `accepted` status, third in report order, and lists every advisory it is carrying exactly as a `vulnerable` row does. It is in the headline, the one-line summary ("nothing unsafe beyond what is accepted"), the JSON counts and SARIF as a warning, and `--only vulnerable` still shows it: narrowing hides what needs no action, never risk. Matching is on the exact version, so an acceptance cannot follow a package into a version nobody looked at; any-version is available by leaving `version` out, which a config file has to do deliberately. An expired entry stops suppressing and fails the run, like every other kind. That rule is now in `AGENTS.md` under the rules that must never be broken.
+
+Two things found while building it. A misspelt policy kind - `[[policy.ignore_packages]]` - was read as no policy at all, which is the `excludes` bug in the file where a silent nothing is worst; it is refused now. And the new section heading had an em-dash in it, which came out as `?` on a Windows console, the place this output is actually read. The summary line has had an ASCII test since it was written; the text report had only the convention, so it now has a guard that renders a report holding one row of every status and insists the whole thing is ASCII. That guard was checked by reintroducing the em-dash and watching it fail.
+
+503 -> 528 tests, all passing including the live one. Lint, format and strict mypy clean; `vendored/` regenerated. Verified on a real project rather than only fixtures: `fast-uri 3.1.8` in `DayandNight_BCS` moved from vulnerable to accepted through a config file kept outside that repository (`--config`), the count went 7 -> 6 with "1 accepted" in the headline and the summary, the `ACCEPTED` section listed all four advisories under `--only vulnerable`, and `git status` in that repository stayed empty. Committed locally; not pushed.
+
 ### Session 10 — 2026-10-30
 Acted on the second outside trial. Pixel Galaxy Studio's session was told to work from the README alone and exercise all five adoption routes — the four nobody outside had ever tried, which Session 9 had recorded as the open gap. It found **no P0s**: M5.1's work held, and every one of its findings is in a route the first trial never ran. It also matched `npm audit` package-for-package on three projects and validated five SARIF documents against 2.1.0. The report is committed unchanged as `3b06073`, with four new fixtures under `examples/w01` to `w04`.
 

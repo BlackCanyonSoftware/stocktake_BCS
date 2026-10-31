@@ -79,7 +79,11 @@ Frozen dataclasses with no behaviour beyond derived properties, so every other m
 
 
 # Report order, worst first. `current` is last and collapses to a count (docs/DESIGN.md).
-STATUSES: tuple[str, ...] = ("vulnerable", "yanked", "outdated", "held", "unpinned", "unknown", "current")
+#
+# `accepted` sits third, directly under the two that fail, and above `outdated`. It is a live vulnerability the project has decided to
+# carry on purpose, so it is the most serious thing in the report that is not a failure, and burying it under a list of merely-old
+# packages would undo the point of making it visible at all (docs/adr/0011).
+STATUSES: tuple[str, ...] = ("vulnerable", "yanked", "accepted", "outdated", "held", "unpinned", "unknown", "current")
 
 # The two statuses that fail a build. Being behind is not one of them (docs/adr/0004).
 FAIL_STATUSES = frozenset({"vulnerable", "yanked"})
@@ -458,19 +462,30 @@ def severity_tally(advisories: Sequence[Advisory]) -> list[tuple[str, int]]:
 # stocktake.policy
 # ======================================================================================================================
 
-"""The decisions the project owner has already made: advisories accepted for now, packages held back on purpose.
+"""The decisions the project owner has already made: advisories accepted for now, a whole package accepted for now, packages held back.
 
 Nothing here switches the check off. Every entry needs a reason and a date to look at it again, and an entry past its date both stops
 suppressing whatever it covered and fails the run. That is what stops "ignore it for now" from becoming permanent by neglect (docs/adr/0004),
 and it is why the escape hatch can be trusted at all.
+
+Three kinds, and the difference between them is what is being accepted:
+
+- `ignore_advisories` accepts **one advisory**, by id or alias. The narrowest statement, and the right one when a single advisory is not
+  reachable in your use of the package.
+- `ignore_package` accepts **a package at a version**, with every advisory against it. Added because the narrow form does not scale: one
+  real project would have needed 58 entries for `electron` and `tar`, and the practical consequence of that is that nobody gates on the
+  check at all, which is worse than a policy entry somebody has to renew (docs/adr/0011).
+- `hold_back` accepts **being out of date**, and nothing else. It never suppresses a vulnerability, which is the question `ignore_package`
+  exists to answer instead.
 """
 
 
 
 
 IGNORE = "ignore_advisories"
+ACCEPT = "ignore_package"
 HOLD = "hold_back"
-KINDS: tuple[str, ...] = (IGNORE, HOLD)
+KINDS: tuple[str, ...] = (IGNORE, ACCEPT, HOLD)
 
 
 def _as_date(value: object) -> date | None:
@@ -489,15 +504,29 @@ def _as_date(value: object) -> date | None:
 class PolicyEntry:
     """One decision, with the reason for it and the date it has to be made again."""
 
-    kind: str  # IGNORE or HOLD
+    kind: str  # IGNORE, ACCEPT or HOLD
     what: str  # an advisory id (or any alias of it), or a package name
     reason: str = ""
     until: date | None = None
+    # ACCEPT only: the one version being accepted. Empty means any version of the package, which is the broader and more dangerous
+    # statement, so it is never the default a reader has to infer — a config file that leaves it out is saying so deliberately.
+    version: str = ""
 
     @property
     def complete(self) -> bool:
         """Whether this entry says enough to be acted on at all."""
         return bool(self.reason) and self.until is not None
+
+    @property
+    def subject(self) -> str:
+        """What this entry is about, for a message. Carries the version where there is one, since that is half of what was accepted."""
+        return f"{self.what} {self.version}" if self.version else self.what
+
+    def covers(self, name: str, version: str | None) -> bool:
+        """Whether this ACCEPT entry is about this exact dependency."""
+        if normalize(self.what) != normalize(name):
+            return False
+        return not self.version or self.version == version
 
     def active(self, today: date) -> bool:
         """Whether this entry still suppresses anything."""
@@ -514,6 +543,14 @@ class Policy:
         """Advisory ids and aliases currently accepted."""
         return frozenset(e.what for e in self.entries if e.kind == IGNORE and e.active(today))
 
+    def accepted_vulnerability(self, name: str, version: str | None, today: date) -> PolicyEntry | None:
+        """The entry accepting this package at this version, or None.
+
+        Matching on the version by default is the point: `electron 33.4.11` being accepted says nothing about `electron 34`, and an
+        acceptance that silently carried forward to a version nobody looked at would be the one failure a policy file must not have.
+        """
+        return next((e for e in self.entries if e.kind == ACCEPT and e.active(today) and e.covers(name, version)), None)
+
     def held_packages(self, today: date) -> frozenset[str]:
         """Normalised names of packages currently held back from an update on purpose."""
         return frozenset(normalize(e.what) for e in self.entries if e.kind == HOLD and e.active(today))
@@ -528,10 +565,10 @@ class Policy:
         problems = []
         for entry in self.entries:
             if not entry.complete:
-                problems.append(f"{entry.kind}: {entry.what} needs a reason and an `until` date (YYYY-MM-DD)")
+                problems.append(f"{entry.kind}: {entry.subject} needs a reason and an `until` date (YYYY-MM-DD)")
             elif entry.until is not None and entry.until < today:
                 problems.append(
-                    f"{entry.kind}: {entry.what} was accepted until {entry.until} and is due for a decision again ({entry.reason})"
+                    f"{entry.kind}: {entry.subject} was accepted until {entry.until} and is due for a decision again ({entry.reason})"
                 )
         return tuple(problems)
 
@@ -542,12 +579,21 @@ def policy_from_toml(table: Mapping[str, Any]) -> Policy:
     An entry missing its reason or its date is kept, not dropped, so it can be reported as the problem it is rather than silently ignored.
     """
     entries = []
-    for kind, key in ((IGNORE, "id"), (HOLD, "package")):
+    for kind, key in ((IGNORE, "id"), (ACCEPT, "package"), (HOLD, "package")):
         for raw in table.get(kind) or []:
             if not isinstance(raw, Mapping):
                 continue
             what = raw.get(key) or raw.get("id") or raw.get("package") or "?"
-            entries.append(PolicyEntry(kind=kind, what=str(what), reason=str(raw.get("reason") or ""), until=_as_date(raw.get("until"))))
+            version = raw.get("version") if kind == ACCEPT else None
+            entries.append(
+                PolicyEntry(
+                    kind=kind,
+                    what=str(what),
+                    reason=str(raw.get("reason") or ""),
+                    until=_as_date(raw.get("until")),
+                    version=str(version) if version is not None else "",
+                )
+            )
     return Policy(tuple(entries))
 
 # ======================================================================================================================
@@ -904,10 +950,12 @@ Shared by every format, so `--only vulnerable` means the same thing whether the 
 
 ONLY_CHOICES: tuple[str, ...] = ("all", "outdated", "vulnerable")
 
+# `accepted` is in every set, including the narrowest. `--only vulnerable` asks "what is unsafe here", and a package carrying forty-six
+# advisories is unsafe whether or not somebody signed for it. Narrowing is for hiding what needs no action, not for hiding risk.
 _SHOWN_FOR: dict[str, frozenset[str]] = {
     "all": frozenset(STATUSES),
-    "outdated": frozenset({"vulnerable", "yanked", "outdated"}),
-    "vulnerable": frozenset({"vulnerable", "yanked"}),
+    "outdated": frozenset({"vulnerable", "yanked", "accepted", "outdated"}),
+    "vulnerable": frozenset({"vulnerable", "yanked", "accepted"}),
 }
 
 
@@ -990,6 +1038,16 @@ def _checked(report: Report) -> str:
     return f"({', '.join([counted, *_unresolved(report)])})"
 
 
+def _accepted(report: Report) -> list[str]:
+    """Vulnerabilities the project has signed for. Named in the one line, because that line is all a CI step title shows.
+
+    Not part of `_unsafe`: these fail nothing, which is the point of accepting them. Still said out loud, because a carried vulnerability
+    that has become invisible is indistinguishable from one nobody knows about (docs/adr/0011).
+    """
+    count = report.counts["accepted"]
+    return [f"{count} accepted"] if count else []
+
+
 def render_summary(report: Report) -> str:
     """The whole report in one line."""
     total = len(report.findings)
@@ -1001,10 +1059,10 @@ def render_summary(report: Report) -> str:
     # An incomplete run says so even when it did find something unsafe, with the finding named after it. The caveat is what a truncated line
     # has to keep: a finding from a run that did not cover the project is a floor, not the answer.
     if incomplete:
-        return f"stocktake: {', '.join([incomplete, *unsafe])}"
+        return f"stocktake: {', '.join([incomplete, *unsafe, *_accepted(report)])}"
 
     if unsafe:
-        return f"stocktake: {', '.join(unsafe)} {_checked(report)}"
+        return f"stocktake: {', '.join([*unsafe, *_accepted(report)])} {_checked(report)}"
 
     if not total:
         # A project whose manifests are all of a kind nothing reads yet never reaches here: that is an incomplete run, and `_incomplete`
@@ -1012,8 +1070,12 @@ def render_summary(report: Report) -> str:
         return "stocktake: nothing found to check"
 
     # "nothing unsafe" is a claim about what was actually resolved, so it is not made at all when nothing was.
-    verdict = f"nothing unsafe, {report.counts['outdated']} outdated" if resolved else "nothing could be checked"
-    return f"stocktake: {verdict} {_checked(report)}"
+    # "nothing unsafe" would be a lie with an accepted finding in hand, so the wording changes rather than the count being left out.
+    carried = _accepted(report)
+    unqualified = f"nothing unsafe, {report.counts['outdated']} outdated"
+    qualified = f"nothing unsafe beyond what is accepted, {report.counts['outdated']} outdated"
+    verdict = (qualified if carried else unqualified) if resolved else "nothing could be checked"
+    return f"stocktake: {', '.join([verdict, *carried])} {_checked(report)}"
 
 # ======================================================================================================================
 # stocktake.readers.dockerfile
@@ -2015,6 +2077,9 @@ INFORMATION_URI = "https://github.com/BlackCanyonSoftware/stocktake_BCS"
 LEVELS: dict[str, str] = {
     "vulnerable": "error",
     "yanked": "error",
+    # More than a note and less than an error, which is exactly what it is: a real vulnerability that somebody has signed for and dated. It
+    # stays in the code-scanning view so the decision can be reviewed, and it does not fail the run.
+    "accepted": "warning",
     "outdated": "note",
     "unpinned": "note",
     "unknown": "note",
@@ -2027,6 +2092,11 @@ UNREADABLE_RULE = "unreadable"
 RULES: dict[str, tuple[str, str]] = {
     "vulnerable": ("Vulnerable dependency", "A dependency is at a version with a known published security advisory against it."),
     "yanked": ("Withdrawn release", "A dependency is at a release its own author has since withdrawn."),
+    "accepted": (
+        "Accepted vulnerability",
+        "A dependency has a known advisory against it, and the project has recorded a decision to carry it with a reason and a date. The "
+        "entry fails the run once that date passes.",
+    ),
     "outdated": ("Newer release available", "A newer release of this dependency exists. Being behind is not a failure."),
     "unpinned": ("No version fixed", "Nothing fixes this dependency's version, so what gets installed depends on when."),
     "unknown": ("Could not be checked", "This dependency could not be looked up, so nothing is claimed about it either way."),
@@ -2064,6 +2134,11 @@ def _message(finding: Finding) -> str:
         listed = ", ".join(advisory.id for advisory in finding.advisories[:5])
         more = f" and {len(finding.advisories) - 5} more" if len(finding.advisories) > 5 else ""
         return f"{where} has {len(finding.advisories)} known {plural} ({listed}{more}). {advice}"
+
+    if finding.status == "accepted":
+        plural = "advisory" if len(finding.advisories) == 1 else "advisories"
+        carried = f"{len(finding.advisories)} known {plural}" if finding.advisories else "a release withdrawn by its author"
+        return f"{where} has {carried}, accepted on purpose: {finding.note.split(': ', 1)[-1]}"
 
     if finding.status == "yanked":
         return f"{where} is a release its author has withdrawn. The newest release is {finding.latest}."
@@ -2207,6 +2282,14 @@ severity carried by the word rather than the colour is the accessible choice any
 
 _HINT = "stocktake --only vulnerable --all-advisories"
 
+# What a section heading says about itself, where the status alone is not enough. `accepted` needs it most: a reader seeing advisories listed
+# under a heading has to know at once whether this is work to do or work already signed for.
+SECTION_NOTE: dict[str, str] = {
+    "vulnerable": " (fix these)",
+    "yanked": " (fix these)",
+    "accepted": " (known, and accepted on purpose: each entry fails the run once its date passes)",
+}
+
 
 def _source_width(findings: Sequence[Finding]) -> int:
     """Wide enough for the paths actually present, within reason, so rows line up without the file names being cut off."""
@@ -2232,12 +2315,13 @@ def _headline(report: Report) -> str:
     # `11 vulnerable` was eight packages, one of them declared at four versions, and the obvious thing to compare it against is `npm audit`,
     # which counts packages. Naming both units costs a few characters and stops the comparison looking like a disagreement.
     vulnerable = f"{counts['vulnerable']} vulnerable"
+    accepted = f", {counts['accepted']} accepted" if counts["accepted"] else ""
     packages = len({(f.dep.ecosystem, f.dep.name) for f in report.findings if f.status == "vulnerable"})
     if packages and packages != counts["vulnerable"]:
         vulnerable += f" ({packages} package{'' if packages == 1 else 's'})"
     line = (
         f"Dependency check {report.today}: {len(report.findings)} checked, "
-        f"{vulnerable}, {report.withdrawn_count} withdrawn, {counts['outdated']} outdated, {counts['unpinned']} unpinned"
+        f"{vulnerable}{accepted}, {report.withdrawn_count} withdrawn, {counts['outdated']} outdated, {counts['unpinned']} unpinned"
     )
     # Both of these say the report below is partial, which matters more than anything in it, so both go on the first line.
     if report.offline:
@@ -2314,9 +2398,9 @@ def render_text(report: Report, only: str = "all", all_advisories: bool = False,
         if status == "current":
             lines += ["", f"CURRENT: {len(rows)} up to date"]
             continue
-        lines += ["", status.upper() + (" (fix these)" if status in ("vulnerable", "yanked") else "")]
+        lines += ["", status.upper() + SECTION_NOTE.get(status, "")]
         for finding in rows:
-            if status == "vulnerable":
+            if status in ("vulnerable", "accepted"):
                 lines += _vulnerable_row(finding, width, all_advisories, top)
                 continue
             dep = finding.dep
@@ -2494,6 +2578,9 @@ def _build(path: Path, table: Mapping[str, Any]) -> Config:
     policy = table.get("policy") or {}
     if not isinstance(policy, Mapping):
         raise ConfigError(f"{path}: `[policy]` must be a table")
+    # A misspelt kind — `[[policy.ignore_packages]]` — was read as no policy at all, which is the same silent-nothing as `excludes` was.
+    # It matters more here: a policy that has quietly stopped applying is the one failure a policy file must not have.
+    _reject_unknown_keys(path, policy, frozenset(POLICY_KINDS), "unknown policy kind in `[policy]`")
     return Config(
         policy=policy_from_toml(policy),
         exclude=_string_list(path, table, "exclude"),
@@ -2630,7 +2717,14 @@ def _unreachable(answers: Mapping[tuple[str, str], Answer]) -> str | None:
     return failures[0] if failures and len(failures) == len(answers) else None
 
 
-def _judge(dep: Dep, answer: Answer, advisories: tuple[Advisory, ...], held: frozenset[str], hold_reason: str) -> Finding:
+def _judge(
+    dep: Dep,
+    answer: Answer,
+    advisories: tuple[Advisory, ...],
+    held: frozenset[str],
+    hold_reason: str,
+    accepted: PolicyEntry | None = None,
+) -> Finding:
     """One dependency's finding. The whole decision table, in the order the questions have to be asked."""
     if dep.version is None:
         # The reader's own reason wins: it knows whether a version is missing because nothing pins one or because what pins it is a commit.
@@ -2648,8 +2742,16 @@ def _judge(dep: Dep, answer: Answer, advisories: tuple[Advisory, ...], held: fro
         note = f"{len(advisories)} known {plural}"
         if withdrawn:
             note += "; this release was also withdrawn by its author"
+        if accepted is not None:
+            # The advisories are kept, not dropped. An acceptance is a decision to carry a known risk, and a report that stopped showing the
+            # risk would make the decision impossible to review — which is the whole argument for requiring a date on it (docs/adr/0011).
+            carried = f"{note}, accepted on purpose until {accepted.until}: {accepted.reason}"
+            return Finding(dep, "accepted", "info", answer.latest, advisories=advisories, note=carried, withdrawn=withdrawn)
         return Finding(dep, "vulnerable", "fail", answer.latest, advisories=advisories, note=note, withdrawn=withdrawn)
     if withdrawn:
+        if accepted is not None:
+            carried = f"this release was withdrawn by its author, accepted on purpose until {accepted.until}: {accepted.reason}"
+            return Finding(dep, "accepted", "info", answer.latest, note=carried, withdrawn=True)
         return Finding(dep, "yanked", "fail", answer.latest, note="this release was withdrawn by its author", withdrawn=True)
     if is_newer(answer.latest, dep.version, dep.ecosystem, moving=dep.moving):
         kind = update_kind(answer.latest, dep.version)
@@ -2702,7 +2804,8 @@ def evaluate(
     for dep in deps:
         against = advisories.get((dep.ecosystem, normalize(dep.name), dep.version)) if dep.version is not None else None
         relevant = tuple(a for a in (against or ()) if a.id not in ignored and not (set(a.aliases) & ignored))
-        findings.append(_judge(dep, answers.get((dep.ecosystem, dep.name)), relevant, held, policy.hold_reason(dep.name, today)))
+        accepted = policy.accepted_vulnerability(dep.name, dep.version, today) if dep.version is not None else None
+        findings.append(_judge(dep, answers.get((dep.ecosystem, dep.name)), relevant, held, policy.hold_reason(dep.name, today), accepted))
 
     return Report(
         findings=tuple(findings),
@@ -3159,4 +3262,5 @@ def failure_text(report: Report) -> str | None:
 # names that were renamed on import, put back
 # ======================================================================================================================
 
+POLICY_KINDS = KINDS
 reader_groups = groups

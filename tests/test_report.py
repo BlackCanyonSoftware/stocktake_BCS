@@ -4,9 +4,11 @@ The layout is the design (docs/DESIGN.md), so it is asserted rather than left to
 """
 
 import json
+from datetime import date
 
 from stocktake.evaluate import evaluate
 from stocktake.models import Dep, Report, Unread
+from stocktake.policy import ACCEPT, HOLD, Policy, PolicyEntry
 from stocktake.report import as_dict, render_json, render_text
 
 from helpers import TODAY, FakeNet, advisory_detail, pin, registries
@@ -182,3 +184,49 @@ def test_the_headline_says_nothing_extra_when_the_two_counts_agree(tmp_path):
     headline = render_text(report).splitlines()[0]
     assert "1 vulnerable," in headline
     assert "package" not in headline
+
+
+def test_nothing_the_text_report_prints_is_non_ascii(tmp_path):
+    """An em-dash in a section heading came out as `?` on a Windows console, in a report that is read in exactly that place.
+
+    The summary line has had this test since it was written; the text report had only the convention. A report with one row of every status
+    in it, so a heading, a note or a tally that picks up a typographic character is caught here rather than by somebody squinting at cp1252.
+    """
+    net = FakeNet(
+        pypi={
+            "vuln": ("2.0", []),
+            "gone": ("2.0", ["1.0"]),
+            "carried": ("2.0", []),
+            "old": ("2.0", []),
+            "kept": ("2.0", []),
+            "fine": ("1.0", []),
+        },
+        osv={("vuln", "1.0"): ["GHSA-1"], ("carried", "1.0"): ["GHSA-2"]},
+        details={
+            "GHSA-1": advisory_detail("one", "CRITICAL", fixed=("2.0",)),
+            "GHSA-2": advisory_detail("two", "LOW", fixed=("2.0",)),
+        },
+    )
+    policy = Policy(
+        (
+            PolicyEntry(kind=ACCEPT, what="carried", version="1.0", reason="not reachable", until=date(2027, 1, 1)),
+            PolicyEntry(kind=HOLD, what="kept", reason="breaks the build", until=date(2027, 1, 1)),
+        )
+    )
+    deps = [
+        pin("vuln", "1.0"),
+        pin("gone", "1.0"),
+        pin("carried", "1.0"),
+        pin("old", "1.0"),
+        pin("kept", "1.0"),
+        pin("fine", "1.0"),
+        pin("loose", None),
+        pin("nowhere", "1.0"),
+    ]
+    report = evaluate(deps, registries(tmp_path, net), policy, TODAY, Unread(("go.mod",)), ("a note",))
+    assert {f.status for f in report.findings} >= {"vulnerable", "yanked", "accepted", "outdated", "held", "unpinned", "unknown", "current"}
+
+    for only in ("all", "outdated", "vulnerable"):
+        rendered = render_text(report, only, all_advisories=True)
+        offenders = sorted({c for c in rendered if not c.isascii()})
+        assert not offenders, f"--only {only} printed non-ASCII: {offenders}"

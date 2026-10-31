@@ -9,7 +9,11 @@ import re
 from dataclasses import dataclass
 
 # Report order, worst first. `current` is last and collapses to a count (docs/DESIGN.md).
-STATUSES: tuple[str, ...] = ("vulnerable", "yanked", "outdated", "held", "unpinned", "unknown", "current")
+#
+# `accepted` sits third, directly under the two that fail, and above `outdated`. It is a live vulnerability the project has decided to
+# carry on purpose, so it is the most serious thing in the report that is not a failure, and burying it under a list of merely-old
+# packages would undo the point of making it visible at all (docs/adr/0011).
+STATUSES: tuple[str, ...] = ("vulnerable", "yanked", "accepted", "outdated", "held", "unpinned", "unknown", "current")
 
 # The two statuses that fail a build. Being behind is not one of them (docs/adr/0004).
 FAIL_STATUSES = frozenset({"vulnerable", "yanked"})

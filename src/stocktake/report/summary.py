@@ -71,6 +71,16 @@ def _checked(report: Report) -> str:
     return f"({', '.join([counted, *_unresolved(report)])})"
 
 
+def _accepted(report: Report) -> list[str]:
+    """Vulnerabilities the project has signed for. Named in the one line, because that line is all a CI step title shows.
+
+    Not part of `_unsafe`: these fail nothing, which is the point of accepting them. Still said out loud, because a carried vulnerability
+    that has become invisible is indistinguishable from one nobody knows about (docs/adr/0011).
+    """
+    count = report.counts["accepted"]
+    return [f"{count} accepted"] if count else []
+
+
 def render_summary(report: Report) -> str:
     """The whole report in one line."""
     total = len(report.findings)
@@ -82,10 +92,10 @@ def render_summary(report: Report) -> str:
     # An incomplete run says so even when it did find something unsafe, with the finding named after it. The caveat is what a truncated line
     # has to keep: a finding from a run that did not cover the project is a floor, not the answer.
     if incomplete:
-        return f"stocktake: {', '.join([incomplete, *unsafe])}"
+        return f"stocktake: {', '.join([incomplete, *unsafe, *_accepted(report)])}"
 
     if unsafe:
-        return f"stocktake: {', '.join(unsafe)} {_checked(report)}"
+        return f"stocktake: {', '.join([*unsafe, *_accepted(report)])} {_checked(report)}"
 
     if not total:
         # A project whose manifests are all of a kind nothing reads yet never reaches here: that is an incomplete run, and `_incomplete`
@@ -93,5 +103,9 @@ def render_summary(report: Report) -> str:
         return "stocktake: nothing found to check"
 
     # "nothing unsafe" is a claim about what was actually resolved, so it is not made at all when nothing was.
-    verdict = f"nothing unsafe, {report.counts['outdated']} outdated" if resolved else "nothing could be checked"
-    return f"stocktake: {verdict} {_checked(report)}"
+    # "nothing unsafe" would be a lie with an accepted finding in hand, so the wording changes rather than the count being left out.
+    carried = _accepted(report)
+    unqualified = f"nothing unsafe, {report.counts['outdated']} outdated"
+    qualified = f"nothing unsafe beyond what is accepted, {report.counts['outdated']} outdated"
+    verdict = (qualified if carried else unqualified) if resolved else "nothing could be checked"
+    return f"stocktake: {', '.join([verdict, *carried])} {_checked(report)}"

@@ -17,6 +17,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
+from stocktake.policy import KINDS as POLICY_KINDS
 from stocktake.policy import Policy, policy_from_toml
 from stocktake.readers import groups as reader_groups
 
@@ -170,6 +171,9 @@ def _build(path: Path, table: Mapping[str, Any]) -> Config:
     policy = table.get("policy") or {}
     if not isinstance(policy, Mapping):
         raise ConfigError(f"{path}: `[policy]` must be a table")
+    # A misspelt kind — `[[policy.ignore_packages]]` — was read as no policy at all, which is the same silent-nothing as `excludes` was.
+    # It matters more here: a policy that has quietly stopped applying is the one failure a policy file must not have.
+    _reject_unknown_keys(path, policy, frozenset(POLICY_KINDS), "unknown policy kind in `[policy]`")
     return Config(
         policy=policy_from_toml(policy),
         exclude=_string_list(path, table, "exclude"),

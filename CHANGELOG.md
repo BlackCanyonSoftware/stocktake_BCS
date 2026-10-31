@@ -19,6 +19,7 @@ Everything below is unreleased: StockTake has not been published anywhere yet, a
 - Reports a dependency manifest of a kind it cannot read yet, rather than passing over it in silence.
 - Reports a dependency file it *meant* to read and could not — damaged, or not text — as making the whole run incomplete, with the reason, and exits 2. `--only` cannot narrow it away. ([ADR 0009](docs/adr/0009-an-unread-file-makes-the-run-incomplete.md))
 - Treats a project where **nothing at all** could be checked, every dependency file being of a kind it has no reader for, as incomplete rather than clean: exit 2, naming the files and `accept_unread`, which is how a project says it is expected. Partial coverage still passes. ([ADR 0010](docs/adr/0010-a-run-that-checked-nothing-is-not-a-pass.md))
+- Refuses a misspelt policy kind. `[[policy.ignore_packages]]` used to be read as no policy at all.
 - Names each advisory's own smallest fix beside the one version that clears them all, so a package with dozens of advisories says which single upgrade clears which.
 - Reads a manifest saved as UTF-8, UTF-16 or UTF-32, by its byte-order mark.
 - Follows `-r` and `-c` includes in a requirements file, where the included file is one the walk would not reach on its own.
@@ -33,7 +34,8 @@ Everything below is unreleased: StockTake has not been published anywhere yet, a
 - SARIF 2.1.0 output, validated against the published schema by the test suite, so the findings appear in GitHub's code-scanning view on the lines they came from.
 - `--format json` carries `schema_version`, `stocktake_version` and `complete`, so a script can refuse a shape it does not know and can tell "this project is fine" from "this run did not manage to look". `--only` narrows the findings in every format, worst severity first.
 - `.stocktake.toml` (or `[tool.stocktake]` in `pyproject.toml`): `ecosystems`, `exclude`, `accept_unread`, `environment`, `cache.ttl_hours`, and the policy. Every value **and every key** is validated as it is read: an unknown ecosystem name and an unknown setting are both refused rather than ignored, and a misspelt key gets a suggestion.
-- Policy entries that need a reason and a date, where an entry past its date fails the check until it is decided again.
+- Policy entries that need a reason and a date, where an entry past its date fails the check until it is decided again. Three kinds: `ignore_advisories` for one advisory, `ignore_package` for a package at a version with every advisory against it, and `hold_back` for being out of date (which never suppresses a vulnerability).
+- An accepted vulnerability keeps its own `accepted` status and its own section listing every advisory being carried, counts in the headline, the summary and the JSON, and a SARIF warning. `--only` cannot narrow it away. ([ADR 0011](docs/adr/0011-accepting-a-vulnerable-package.md))
 
 **Keeping it honest**
 - Answers cached for six hours, shared across projects. A failed *connection* is retried once; a service that answered is not.

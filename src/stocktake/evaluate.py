@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 
 from stocktake.models import Advisory, Dep, Finding, Report, Unread, Unreadable, normalize
-from stocktake.policy import Policy
+from stocktake.policy import Policy, PolicyEntry
 from stocktake.registries import Coordinate, OfflineError, RateLimited, Registries, Versions
 from stocktake.versions import is_newer, update_kind
 
@@ -63,7 +63,14 @@ def _unreachable(answers: Mapping[tuple[str, str], Answer]) -> str | None:
     return failures[0] if failures and len(failures) == len(answers) else None
 
 
-def _judge(dep: Dep, answer: Answer, advisories: tuple[Advisory, ...], held: frozenset[str], hold_reason: str) -> Finding:
+def _judge(
+    dep: Dep,
+    answer: Answer,
+    advisories: tuple[Advisory, ...],
+    held: frozenset[str],
+    hold_reason: str,
+    accepted: PolicyEntry | None = None,
+) -> Finding:
     """One dependency's finding. The whole decision table, in the order the questions have to be asked."""
     if dep.version is None:
         # The reader's own reason wins: it knows whether a version is missing because nothing pins one or because what pins it is a commit.
@@ -81,8 +88,16 @@ def _judge(dep: Dep, answer: Answer, advisories: tuple[Advisory, ...], held: fro
         note = f"{len(advisories)} known {plural}"
         if withdrawn:
             note += "; this release was also withdrawn by its author"
+        if accepted is not None:
+            # The advisories are kept, not dropped. An acceptance is a decision to carry a known risk, and a report that stopped showing the
+            # risk would make the decision impossible to review — which is the whole argument for requiring a date on it (docs/adr/0011).
+            carried = f"{note}, accepted on purpose until {accepted.until}: {accepted.reason}"
+            return Finding(dep, "accepted", "info", answer.latest, advisories=advisories, note=carried, withdrawn=withdrawn)
         return Finding(dep, "vulnerable", "fail", answer.latest, advisories=advisories, note=note, withdrawn=withdrawn)
     if withdrawn:
+        if accepted is not None:
+            carried = f"this release was withdrawn by its author, accepted on purpose until {accepted.until}: {accepted.reason}"
+            return Finding(dep, "accepted", "info", answer.latest, note=carried, withdrawn=True)
         return Finding(dep, "yanked", "fail", answer.latest, note="this release was withdrawn by its author", withdrawn=True)
     if is_newer(answer.latest, dep.version, dep.ecosystem, moving=dep.moving):
         kind = update_kind(answer.latest, dep.version)
@@ -135,7 +150,8 @@ def evaluate(
     for dep in deps:
         against = advisories.get((dep.ecosystem, normalize(dep.name), dep.version)) if dep.version is not None else None
         relevant = tuple(a for a in (against or ()) if a.id not in ignored and not (set(a.aliases) & ignored))
-        findings.append(_judge(dep, answers.get((dep.ecosystem, dep.name)), relevant, held, policy.hold_reason(dep.name, today)))
+        accepted = policy.accepted_vulnerability(dep.name, dep.version, today) if dep.version is not None else None
+        findings.append(_judge(dep, answers.get((dep.ecosystem, dep.name)), relevant, held, policy.hold_reason(dep.name, today), accepted))
 
     return Report(
         findings=tuple(findings),

@@ -18,6 +18,14 @@ from stocktake.report.choices import shown_statuses
 
 _HINT = "stocktake --only vulnerable --all-advisories"
 
+# What a section heading says about itself, where the status alone is not enough. `accepted` needs it most: a reader seeing advisories listed
+# under a heading has to know at once whether this is work to do or work already signed for.
+SECTION_NOTE: dict[str, str] = {
+    "vulnerable": " (fix these)",
+    "yanked": " (fix these)",
+    "accepted": " (known, and accepted on purpose: each entry fails the run once its date passes)",
+}
+
 
 def _source_width(findings: Sequence[Finding]) -> int:
     """Wide enough for the paths actually present, within reason, so rows line up without the file names being cut off."""
@@ -43,12 +51,13 @@ def _headline(report: Report) -> str:
     # `11 vulnerable` was eight packages, one of them declared at four versions, and the obvious thing to compare it against is `npm audit`,
     # which counts packages. Naming both units costs a few characters and stops the comparison looking like a disagreement.
     vulnerable = f"{counts['vulnerable']} vulnerable"
+    accepted = f", {counts['accepted']} accepted" if counts["accepted"] else ""
     packages = len({(f.dep.ecosystem, f.dep.name) for f in report.findings if f.status == "vulnerable"})
     if packages and packages != counts["vulnerable"]:
         vulnerable += f" ({packages} package{'' if packages == 1 else 's'})"
     line = (
         f"Dependency check {report.today}: {len(report.findings)} checked, "
-        f"{vulnerable}, {report.withdrawn_count} withdrawn, {counts['outdated']} outdated, {counts['unpinned']} unpinned"
+        f"{vulnerable}{accepted}, {report.withdrawn_count} withdrawn, {counts['outdated']} outdated, {counts['unpinned']} unpinned"
     )
     # Both of these say the report below is partial, which matters more than anything in it, so both go on the first line.
     if report.offline:
@@ -125,9 +134,9 @@ def render_text(report: Report, only: str = "all", all_advisories: bool = False,
         if status == "current":
             lines += ["", f"CURRENT: {len(rows)} up to date"]
             continue
-        lines += ["", status.upper() + (" (fix these)" if status in ("vulnerable", "yanked") else "")]
+        lines += ["", status.upper() + SECTION_NOTE.get(status, "")]
         for finding in rows:
-            if status == "vulnerable":
+            if status in ("vulnerable", "accepted"):
                 lines += _vulnerable_row(finding, width, all_advisories, top)
                 continue
             dep = finding.dep

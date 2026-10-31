@@ -9,10 +9,12 @@ from stocktake.models import STATUSES
 
 ONLY_CHOICES: tuple[str, ...] = ("all", "outdated", "vulnerable")
 
+# `accepted` is in every set, including the narrowest. `--only vulnerable` asks "what is unsafe here", and a package carrying forty-six
+# advisories is unsafe whether or not somebody signed for it. Narrowing is for hiding what needs no action, not for hiding risk.
 _SHOWN_FOR: dict[str, frozenset[str]] = {
     "all": frozenset(STATUSES),
-    "outdated": frozenset({"vulnerable", "yanked", "outdated"}),
-    "vulnerable": frozenset({"vulnerable", "yanked"}),
+    "outdated": frozenset({"vulnerable", "yanked", "accepted", "outdated"}),
+    "vulnerable": frozenset({"vulnerable", "yanked", "accepted"}),
 }
 
 

@@ -233,18 +233,33 @@ ttl_hours = 6
 # an entry past its `until` date FAILS the check until it is renewed, so
 # "ignore it for now" cannot quietly become "ignore it forever".
 
+# One advisory, accepted. The narrowest statement, and the right one
+# when a single advisory is not reachable in how you use the package.
 [[policy.ignore_advisories]]
 id = "GHSA-xxxx-xxxx-xxxx"
 reason = "only reachable through a feature we do not use"
 until = 2026-12-01
 
+# A whole package at a version, with every advisory against it. For when
+# the narrow form does not scale: one real project would have needed 58
+# entries above to say what these four lines say.
+[[policy.ignore_package]]
+package = "electron"
+version = "33.4.11"              # omit to accept any version: a much broader statement, so say it on purpose
+reason = "kiosk build, no browser surface exposed; upgrade planned for Q2"
+until = 2026-12-01
+
+# Being out of date, accepted. Never suppresses a vulnerability --
+# that is what ignore_package is for.
 [[policy.hold_back]]
 package = "pillow"
 reason = "12.4 changes the PNG writer; rebuild the logo samples first"
 until = 2026-12-01
 ```
 
-Every value is validated as it is read, **and so is every key**. An unknown ecosystem name is refused, and so is an unknown setting: `excludes = [...]` is an error naming `exclude`, not a file with no excludes in it. A typo that silently switched half the check off would be the worst kind of failure for a file like this. If both files exist, `.stocktake.toml` wins and the report says which was used.
+An accepted package does **not** disappear. It gets its own `ACCEPTED` section listing every advisory being carried, a count in the headline and in the JSON, and a SARIF warning, and `--only vulnerable` still shows it — narrowing hides what needs no action, never risk. The one-line summary says "nothing unsafe **beyond what is accepted**", because the shorter phrase would not be true ([ADR 0011](docs/adr/0011-accepting-a-vulnerable-package.md)).
+
+Every value is validated as it is read, **and so is every key**. An unknown ecosystem name is refused, and so is an unknown setting and an unknown policy kind: `excludes = [...]` is an error naming `exclude`, not a file with no excludes in it, and `[[policy.ignore_packages]]` is an error rather than no policy at all. A typo that silently switched half the check off would be the worst kind of failure for a file like this. If both files exist, `.stocktake.toml` wins and the report says which was used.
 
 ---
 

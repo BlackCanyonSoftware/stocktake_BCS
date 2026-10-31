@@ -165,6 +165,17 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 - **The headline names packages as well as findings.** `11 vulnerable` was eight packages, and the obvious comparison is `npm audit`, which counts packages.
 - Smaller: the unreadable notice is printed once rather than on both streams; the report header uses the local date, not UTC; `did you mean \`exclude\`?.` lost its stray full stop; the `PytestConfigWarning` symptom is named in the README where it says the config line "silently does nothing".
 
+### M5.3 — Accepting a vulnerable package · size S · `done` (2026-10-30)
+**Goal.** The one feature request from either trial worth a yes, which the owner said yes to: a project can accept a vulnerable package in one entry instead of one per advisory.
+
+**Scope.** [ADR 0011](adr/0011-accepting-a-vulnerable-package.md).
+- `[[policy.ignore_package]]` with `package`, optional `version`, `reason` and `until`. Exact-version matching by default; any-version available by omission, which a config file has to say deliberately.
+- A new `accepted` status, severity `info`, third in report order — directly under the two that fail and above `outdated`.
+- It stays loud: its own section listing every advisory carried, a count in the headline, in the one-line summary ("nothing unsafe **beyond what is accepted**") and in the JSON, a SARIF **warning**, and `--only` cannot narrow it away.
+- An expired entry stops suppressing **and** fails the run, like every other policy kind. A withdrawn release can be accepted the same way.
+- **A misspelt policy kind is refused.** `[[policy.ignore_packages]]` was read as no policy at all — the `excludes` bug, in the file where a silent nothing is worst.
+- A guard test renders a report holding one row of every status and insists the text is plain ASCII. An em-dash in the new section heading came out as `?` on a Windows console, which is exactly where this output is read; the summary line had had that test since it was written and the text report had only the convention.
+
 ## Now
 
 ### M6 — More ecosystems · size L · `planned`
@@ -188,7 +199,8 @@ Every `TODO` in the code gets a line here. There are none.
 - **A project whose environment is in none of the usual places needs `--environment` passing once.** The brand-kit repository is this case. A config entry makes it permanent, but it has to be discovered first; the report's note is what makes that discoverable.
 
 From the Windows README-first trial (M5.2).
-- **No way to accept a vulnerable package wholesale, with a reason and a date.** `hold_back` covers being out of date, not being vulnerable — correctly, and the report confirmed it — so the only way to accept a known advisory is one `ignore_advisories` entry per id. For the `electron` and `tar` findings of one real project that is **58 entries**, which is not a policy anybody will write, so the real-world answer becomes "do not gate on it", which is worse. The shape asked for is `ignore_package = "electron"` with a `version`, a reason and an `until`, alongside the per-id form. **This is the one feature request from either trial that should probably be a yes**, and it is held only because it widens what a policy can hide and so wants deciding deliberately rather than in passing — the per-id form's friction is exactly what stops a policy file becoming a blanket. Decide it with the owner.
+- ~~**No way to accept a vulnerable package wholesale, with a reason and a date.**~~ **Done** (2026-10-30), after the owner decided it: `[[policy.ignore_package]]` with a `package`, an optional `version`, a reason and an `until`. [ADR 0011](adr/0011-accepting-a-vulnerable-package.md) records the reasoning, including the counter-argument it was held on — that per-advisory friction is what stops a policy file becoming a blanket. What settled it is that the friction was protecting the wrong thing: the trial's own conclusion was to use the SARIF route and *not gate on the check at all*, and a gate that is off reports nothing.
+- **A stale policy entry is not reported as stale.** One that matches nothing — because the package was upgraded, or the advisory id was mistyped — simply stops applying, silently, until its `until` date comes round and fails the run for a reason that no longer exists. True of all three kinds, and worth fixing for all three at once: report every entry that suppressed nothing this run.
 - **No `exit_code` or `root` in the JSON**, and no published schema file. `exit_code` is declined for the reason above; `root` and a published schema remain open.
 - **A TOML error carries no line number.** `tomllib` gives one for some failures and not others, and the message passes on whatever it got.
 - **pytest's one-line summary shows the headline, not the worst finding.** `StockTake found 1 vulnerable.` rather than the package's name, because `repr_failure` returns a plain string and the summary takes its first line. Naming the worst package there would mean duplicating the ranking into the message's first line; not obviously worth it.

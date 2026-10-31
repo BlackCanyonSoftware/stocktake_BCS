@@ -26,6 +26,9 @@ INFORMATION_URI = "https://github.com/BlackCanyonSoftware/stocktake_BCS"
 LEVELS: dict[str, str] = {
     "vulnerable": "error",
     "yanked": "error",
+    # More than a note and less than an error, which is exactly what it is: a real vulnerability that somebody has signed for and dated. It
+    # stays in the code-scanning view so the decision can be reviewed, and it does not fail the run.
+    "accepted": "warning",
     "outdated": "note",
     "unpinned": "note",
     "unknown": "note",
@@ -38,6 +41,11 @@ UNREADABLE_RULE = "unreadable"
 RULES: dict[str, tuple[str, str]] = {
     "vulnerable": ("Vulnerable dependency", "A dependency is at a version with a known published security advisory against it."),
     "yanked": ("Withdrawn release", "A dependency is at a release its own author has since withdrawn."),
+    "accepted": (
+        "Accepted vulnerability",
+        "A dependency has a known advisory against it, and the project has recorded a decision to carry it with a reason and a date. The "
+        "entry fails the run once that date passes.",
+    ),
     "outdated": ("Newer release available", "A newer release of this dependency exists. Being behind is not a failure."),
     "unpinned": ("No version fixed", "Nothing fixes this dependency's version, so what gets installed depends on when."),
     "unknown": ("Could not be checked", "This dependency could not be looked up, so nothing is claimed about it either way."),
@@ -75,6 +83,11 @@ def _message(finding: Finding) -> str:
         listed = ", ".join(advisory.id for advisory in finding.advisories[:5])
         more = f" and {len(finding.advisories) - 5} more" if len(finding.advisories) > 5 else ""
         return f"{where} has {len(finding.advisories)} known {plural} ({listed}{more}). {advice}"
+
+    if finding.status == "accepted":
+        plural = "advisory" if len(finding.advisories) == 1 else "advisories"
+        carried = f"{len(finding.advisories)} known {plural}" if finding.advisories else "a release withdrawn by its author"
+        return f"{where} has {carried}, accepted on purpose: {finding.note.split(': ', 1)[-1]}"
 
     if finding.status == "yanked":
         return f"{where} is a release its author has withdrawn. The newest release is {finding.latest}."

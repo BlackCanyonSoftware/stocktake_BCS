@@ -11,7 +11,7 @@ A dependency checker that drops into a project's own test suite. It reads what t
 ## Commands
 
 ```bash
-./.venv/Scripts/python -m pytest              # whole suite, incl. the live check (503 tests, ~6s)
+./.venv/Scripts/python -m pytest              # whole suite, incl. the live check (528 tests, ~6s)
 ./.venv/Scripts/python -m pytest -m "not network"
 ./.venv/Scripts/python -m ruff check .
 ./.venv/Scripts/python -m ruff format .
@@ -30,7 +30,9 @@ src/stocktake/
   versions.py      comparison, per ecosystem (PEP 440, SemVer, bare tags) + the moving-tag rule
   advisories.py    merging aliased advisories, ranking, naming the one version that clears them
   config.py        .stocktake.toml / [tool.stocktake]; every value validated as it is read
-  policy.py        decisions with a reason and an expiry; an overdue entry fails
+  policy.py        decisions with a reason and an expiry; an overdue entry fails. Three kinds, and the
+                   difference matters: ignore_advisories (one advisory), ignore_package (a package at a
+                   version), hold_back (being out of date only -- never a vulnerability)
   scan.py          walking the tree, unread manifests, and which environment "installed" means
   evaluate.py      the judgement: Dep[] + registry answers -> Report. Pure given a Registries.
   check.py         one whole run, the fail/warn/skip rules, and assert_safe. THE RULES LIVE HERE ONCE.
@@ -77,6 +79,7 @@ One module in `readers/`, one in `registries/`, an import line in each `__init__
 - **Only package names and versions leave the machine.** No paths, no file contents, no telemetry.
 - **A registry that cannot be reached is `unknown`, never clean.**
 - **Only unsafe findings fail a build**; being behind warns ([ADR 0004](docs/adr/0004-only-unsafe-findings-fail-the-build.md)). "It would be more thorough to fail on X" has been considered and rejected.
+- **A suppression is never a silence.** A policy entry may stop something failing the build; it may never stop it being reported. An accepted package lists every advisory it is carrying, in every format, and `--only` cannot narrow it away ([ADR 0011](docs/adr/0011-accepting-a-vulnerable-package.md)).
 - **The runtime core depends on nothing.** A test enforces it.
 - **The rules live in `check.py` only.** The CLI and the plugin both call them; neither works them out for itself.
 - **Never weaken, skip or delete a test to get a passing run.** If a test is wrong, say why first.
