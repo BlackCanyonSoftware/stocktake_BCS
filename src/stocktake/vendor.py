@@ -14,7 +14,8 @@ Three things make that safe rather than merely clever:
   the same project to insist the two agree.
 
 What the copy does not include: the pytest plugin (it needs pytest), `stocktake init`, the command line, and this generator. It is a library —
-`run_check`, `skip_reason`, `update_warning`, `failure_text`, and everything those stand on.
+`assert_safe` for the one-call case, and `run_check`, `problems`, `skip_reason`, `update_warning` and `failure_text` for a caller that wants
+to judge each case itself, plus everything those stand on.
 """
 
 from __future__ import annotations
@@ -45,13 +46,21 @@ one has a known advisory, and judges the answers. It never edits a file, and the
 
     import stocktake_vendored as stocktake
 
+    report = stocktake.assert_safe(".")   # raises AssertionError CARRYING THE REPORT on anything unsafe or unchecked
+
+Use `assert_safe` rather than asserting on `failure_text` yourself. `assert failure_text(report) is None` passes the text to nobody, so a
+build that goes red shows a bare AssertionError and not one word about the package, the advisory or the fix.
+
+The longhand, when you want to decide for yourself what each case means:
+
     report = stocktake.run_check(Path("."))
-    assert stocktake.failure_text(report) is None     # fails on vulnerable, withdrawn, or an overdue policy entry
 
     if stocktake.skip_reason(report):                 # the registries could not be reached: not a failure
         ...
     if stocktake.update_warning(report):              # a newer release exists: a warning, never a failure
         ...
+    if (wrong := stocktake.problems(report)):         # unsafe, or the project was not fully checked
+        raise AssertionError(wrong)                   # ... and pass the text on, or nobody learns what it was
 
 Not included, because they need things a single file cannot carry: the pytest plugin, `stocktake init`, and the command line.
 """

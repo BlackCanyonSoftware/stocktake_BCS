@@ -237,3 +237,13 @@ def test_every_setting_the_docs_offer_is_accepted(tmp_path):
     assert config.accept_unread == ("go.mod",)
     assert config.environment == ".venv"
     assert config.cache_ttl_hours == 1
+
+
+def test_the_suggestion_does_not_end_in_a_question_mark_and_a_full_stop(tmp_path):
+    """`did you mean `exclude`?.` is what came out before, and a stray full stop in an error message reads as a bug in the message."""
+    path = tmp_path / ".stocktake.toml"
+    path.write_text('excludes = [".venv"]\n', encoding="utf-8")
+    with pytest.raises(ConfigError) as caught:
+        load_config(tmp_path)
+    assert "?. " not in str(caught.value)
+    assert "`exclude`? Valid:" in str(caught.value)

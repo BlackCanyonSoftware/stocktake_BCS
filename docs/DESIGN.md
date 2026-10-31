@@ -30,7 +30,7 @@ Order is fixed and is the design: what must be fixed is first, what is merely in
 |---|---|
 | 0 | nothing unsafe. Outdated dependencies do not change this. |
 | 1 | a vulnerable or withdrawn release, or a policy entry past its date. |
-| 2 | the check could not be completed: the registries could not be reached, a dependency file could not be read, or the configuration could not be read. Not a judgement about the project. |
+| 2 | the check could not be completed: the registries could not be reached, a dependency file could not be read, nothing at all could be checked, or the configuration could not be read. Not a judgement about the project. |
 
 Three codes, each with one meaning. A caller can branch on them without parsing output. Code 2 covers every way of not knowing, because the useful distinction for a caller is "the check reached a verdict" versus "it did not" — and a config file that cannot be parsed must never quietly fall back to defaults, which would mean the project's policy silently stopped applying. **2 outranks 1**: a run that did not cover the project may well have found something unsafe, and reporting that as the verdict would present a floor as an answer ([ADR 0009](adr/0009-an-unread-file-makes-the-run-incomplete.md)).
 
@@ -54,6 +54,7 @@ Every one of these is a state the report must handle, and each has a test:
 - **Unreadable manifest.** A different and worse thing: a reader claimed the file and failed on it, so what is in it is unknown. It leads the report, is named with the reason, makes the run incomplete, exits 2, and cannot be narrowed away by `--only`. Unread is a bounded gap; this is an unbounded one ([ADR 0009](adr/0009-an-unread-file-makes-the-run-incomplete.md)).
 - **No dependencies found at all.** Said explicitly, because silence looks like success. A project where the scanner found nothing is much more likely to be misconfigured than genuinely dependency-free — and the explanation offered depends on which it is: files that could not be read, files of a kind nothing reads yet, or genuinely nothing found.
 - **Nothing resolved.** Rows found, none of them resolved to a version. `nothing could be checked (0 of 5 checked, 5 unpinned)` and never "nothing unsafe", which would be a claim about five dependencies nobody looked up.
+- **Nothing checked at all.** Every dependency file found is a kind nothing reads yet, so there is no report to give: exit 2, and the message names `accept_unread`, which is how a project says this is expected ([ADR 0010](adr/0010-a-run-that-checked-nothing-is-not-a-pass.md)). Partial coverage is not this and still passes.
 
 ## Report formats
 - **`text`** (default) — for a person at a terminal. The layout below.

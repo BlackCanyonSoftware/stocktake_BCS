@@ -27,6 +27,15 @@ A report is committed unchanged, before anything is done about it, so that the
 input and the response stay separable and a later reader can judge both. What
 was done about one lives in [../ROADMAP.md](../ROADMAP.md) — a milestone for
 what was acted on, and a line under "Tech debt and known gaps" for every
-suggestion deliberately not taken, with the reason. The 2026-10-30 report is
-answered by M5.1 and by
-[ADR 0009](../adr/0009-an-unread-file-makes-the-run-incomplete.md).
+suggestion deliberately not taken, with the reason.
+
+- `2026-10-30-claude-code-session.md` (Can-AI, CLI only) is answered by M5.1 and
+  [ADR 0009](../adr/0009-an-unread-file-makes-the-run-incomplete.md).
+- `2026-10-30-claude-code-windows-readme-cold-trial.md` (Pixel Galaxy Studio, all
+  five README routes on Windows) is answered by M5.2 and
+  [ADR 0010](../adr/0010-a-run-that-checked-nothing-is-not-a-pass.md).
+
+What the second report shows about the first is worth noticing: it found no P0s,
+because the first report's P0s had been fixed, and every one of its own findings
+is in a route the first trial never ran. Asking the next one to cover what the
+last one could not is most of the value of doing this more than once.

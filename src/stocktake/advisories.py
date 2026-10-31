@@ -45,21 +45,27 @@ def merge_advisories(items: Sequence[Advisory], ecosystem: str = "PyPI") -> list
     return sorted(merged, key=lambda a: (-a.rank, a.id))
 
 
+def fix_for(advisory: Advisory, current: str, ecosystem: str = "PyPI") -> str | None:
+    """The smallest version that clears this one advisory, or None when it names no fix.
+
+    Smallest that is actually ahead of where we are, because a fix backported to a branch we are not on does not help us. Worth having on its
+    own and not only inside `fix_target`: when a package carries forty-six advisories, the overall target can be nine major versions away,
+    and somebody deciding whether to accept the risk for a quarter needs to know what the smallest hop is.
+    """
+    ahead = [f for f in advisory.fixed if is_newer(f, current, ecosystem)] or list(advisory.fixed)
+    return min(ahead, key=lambda version: sort_key(version, ecosystem)) if ahead else None
+
+
 def fix_target(advisories: Sequence[Advisory], current: str, ecosystem: str = "PyPI") -> str | None:
     """The single version that clears every advisory that names a fix, or None when none of them name one.
 
-    Per advisory, the smallest fix that is actually ahead of where we are, because a fix backported to a branch we are not on does not help us.
-    Overall, the largest of those, because the upgrade has to satisfy all of them at once.
+    The largest of the per-advisory targets, because the upgrade has to satisfy all of them at once.
     """
 
     def key(version: str) -> tuple[Any, ...]:
         return sort_key(version, ecosystem)
 
-    targets = []
-    for advisory in advisories:
-        ahead = [f for f in advisory.fixed if is_newer(f, current, ecosystem)] or list(advisory.fixed)
-        if ahead:
-            targets.append(min(ahead, key=key))
+    targets = [target for a in advisories if (target := fix_for(a, current, ecosystem)) is not None]
     return max(targets, key=key) if targets else None
 
 

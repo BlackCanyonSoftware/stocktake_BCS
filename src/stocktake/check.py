@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 from stocktake.config import Config, ConfigError, load_config
 from stocktake.evaluate import evaluate
@@ -111,6 +112,17 @@ def incomplete_text(report: Report) -> str | None:
     suite has no exit code to carry the distinction, and a warning in a pytest summary is how this became invisible in the first place
     (docs/adr/0009).
     """
+    if report.nothing_was_checked:
+        count = len(report.unread_manifests)
+        files = "file" if count == 1 else "files"
+        named = ", ".join(report.unread_manifests)
+        return (
+            f"StockTake checked nothing in this project. The only {count} dependency {files} it found "
+            f"({named}) are of a kind it has no reader for yet, so this run says nothing about the project either way.\n"
+            "\n"
+            "If that is expected, list them in `accept_unread` in the project's config and this becomes a pass again."
+        )
+
     if not report.unreadable:
         return None
     count = len(report.unreadable)
@@ -120,6 +132,33 @@ def incomplete_text(report: Report) -> str | None:
     lines.append("")
     lines.append("Fix the file, or exclude it in the project's config if it is not meant to be read.")
     return "\n".join(lines)
+
+
+def problems(report: Report) -> str | None:
+    """Everything wrong with this run and with this project, as one message, or None when there is nothing to say.
+
+    The incomplete part comes first when both apply: it says how much of what follows to trust.
+    """
+    trouble = [text for text in (incomplete_text(report), failure_text(report)) if text is not None]
+    return "\n".join(trouble) if trouble else None
+
+
+def assert_safe(root: Path | str = ".", **kwargs: Any) -> Report:
+    """Run the check and raise `AssertionError` carrying the whole report when something is wrong. Returns the report when nothing is.
+
+    For a project driving StockTake from a plain script or a non-pytest test runner — which the single-file copy exists for. The obvious
+    thing to write by hand is `assert failure_text(report) is None`, and a trial run found what that costs: a bare `AssertionError` with a
+    traceback and not one word about the package, the advisory or the fix. The person whose build just went red learns nothing.
+
+    Raises rather than returning a flag so it cannot be ignored, and raises `AssertionError` specifically so a test runner reports it as a
+    failed assertion rather than an error in the tooling. The rules are `problems`, which is the same pair of rules the pytest plugin and the
+    command line use; nothing here decides anything of its own.
+    """
+    report = run_check(Path(root), **kwargs)
+    message = problems(report)
+    if message is not None:
+        raise AssertionError(message)
+    return report
 
 
 def update_warning(report: Report) -> str | None:
@@ -137,5 +176,15 @@ def failure_text(report: Report) -> str | None:
 
     The report itself is the message. Narrowed to what must be fixed, because a failure that also lists thirteen merely-old packages is a
     failure people learn to skim.
+
+    The first line says what happened in words. pytest prints the first line of an assertion message after the dash in its one-line summary,
+    and this used to begin with a blank line, so every failing run showed `FAILED stocktake_dependency_check - ` and nothing after it.
     """
-    return "\n" + render_text(report, "vulnerable") if report.failed else None
+    if not report.failed:
+        return None
+    counts = report.counts
+    parts = [f"{counts[status]} {word}" for status, word in (("vulnerable", "vulnerable"), ("yanked", "withdrawn")) if counts[status]]
+    if report.policy_problems:
+        entries = "entry" if len(report.policy_problems) == 1 else "entries"
+        parts.append(f"{len(report.policy_problems)} policy {entries} overdue")
+    return f"StockTake found {', '.join(parts)}.\n\n" + render_text(report, "vulnerable")

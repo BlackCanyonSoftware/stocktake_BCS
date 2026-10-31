@@ -146,13 +146,28 @@ class Report:
         return bool(self.policy_problems) or any(f.severity == "fail" for f in self.findings)
 
     @property
+    def nothing_was_checked(self) -> bool:
+        """True when the run found dependency manifests of a kind nothing reads yet, and reached no finding at all.
+
+        A Go project — `go.mod` and a `pnpm-lock.yaml`, nothing else — used to print `0 checked`, name both files as unread, and exit 0,
+        which made a CI gate on it permanently green over a project nobody had looked at (docs/adr/0010).
+
+        Partial coverage is not this. Two hundred Python pins checked beside one unread `go.mod` is a bounded, named gap and still exits 0.
+        Zero coverage is a different claim, and the only honest answer to it is that there is no answer.
+
+        Reads `unread_manifests`, which holds only the manifests the project has *not* acknowledged. One listed in `accept_unread` lands in
+        `accepted_unread` instead, so a project that has said "I know, this is all you will find" gets its exit 0 back.
+        """
+        return not self.findings and bool(self.unread_manifests)
+
+    @property
     def complete(self) -> bool:
         """Whether this run actually covers the project it was pointed at.
 
-        An incomplete run is not a passing run, however clean the findings in it look. Both ways it can be incomplete amount to the same
-        thing — part of the project went unchecked — so both answer here, and the exit code treats them alike (docs/adr/0009).
+        An incomplete run is not a passing run, however clean the findings in it look. Every way it can be incomplete amounts to the same
+        thing — the project went unchecked — so all of them answer here, and the exit code treats them alike (docs/adr/0009, docs/adr/0010).
         """
-        return self.offline is None and not self.unreadable
+        return self.offline is None and not self.unreadable and not self.nothing_was_checked
 
     @property
     def counts(self) -> dict[str, int]:

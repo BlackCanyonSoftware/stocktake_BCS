@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from stocktake.advisories import fix_target, severity_tally
+from stocktake.advisories import fix_for, fix_target, severity_tally
 from stocktake.models import STATUSES, Finding, Report
 from stocktake.report.choices import shown_statuses
 
@@ -40,9 +40,15 @@ def _rows(report: Report, status: str) -> list[Finding]:
 
 def _headline(report: Report) -> str:
     counts = report.counts
+    # `11 vulnerable` was eight packages, one of them declared at four versions, and the obvious thing to compare it against is `npm audit`,
+    # which counts packages. Naming both units costs a few characters and stops the comparison looking like a disagreement.
+    vulnerable = f"{counts['vulnerable']} vulnerable"
+    packages = len({(f.dep.ecosystem, f.dep.name) for f in report.findings if f.status == "vulnerable"})
+    if packages and packages != counts["vulnerable"]:
+        vulnerable += f" ({packages} package{'' if packages == 1 else 's'})"
     line = (
         f"Dependency check {report.today}: {len(report.findings)} checked, "
-        f"{counts['vulnerable']} vulnerable, {report.withdrawn_count} withdrawn, {counts['outdated']} outdated, {counts['unpinned']} unpinned"
+        f"{vulnerable}, {report.withdrawn_count} withdrawn, {counts['outdated']} outdated, {counts['unpinned']} unpinned"
     )
     # Both of these say the report below is partial, which matters more than anything in it, so both go on the first line.
     if report.offline:
@@ -64,7 +70,12 @@ def _vulnerable_row(finding: Finding, width: int, all_advisories: bool, top: int
     lines = [f"  {dep.source:<{width}} {dep.name} {dep.version}  {len(finding.advisories)} {plural} ({tally}){fix}{withdrawn}"]
 
     shown = finding.advisories if all_advisories else finding.advisories[:top]
-    lines += [f"      {a.id} {a.label}: {a.summary}" for a in shown]
+    for advisory in shown:
+        # Each advisory's own smallest fix. The package-level target is the largest of these, which for a package carrying dozens of them can
+        # be many majors away and tells nobody which single upgrade would clear which problem.
+        each = fix_for(advisory, dep.version or "0", dep.ecosystem)
+        cleared = f"  [fixed in {each}]" if each and each != target else ""
+        lines.append(f"      {advisory.id} {advisory.label}: {advisory.summary}{cleared}")
     if len(shown) < len(finding.advisories):
         lines.append(f"      ... and {len(finding.advisories) - len(shown)} more ({_HINT})")
     return lines
@@ -83,7 +94,9 @@ def render_text(report: Report, only: str = "all", all_advisories: bool = False,
             why = "Every dependency file found could not be read, so nothing could be checked. The reasons are below."
         elif report.unread_manifests:
             why = (
-                "Nothing could be checked: every dependency file found is of a kind StockTake has no reader for yet. They are named below."
+                "Nothing was checked: every dependency file found is of a kind StockTake has no reader for yet, so this run says nothing "
+                "about the project either way. They are named below. If that is expected, `accept_unread` in the project's config makes "
+                "this a pass again."
             )
         else:
             why = "Nothing was found to check. If that is a surprise, the project's excludes or enabled ecosystems are the place to look."

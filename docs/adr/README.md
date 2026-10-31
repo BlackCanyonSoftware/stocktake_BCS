@@ -11,5 +11,6 @@
 | [0007](0007-the-pytest-plugin-is-opt-in.md) | The pytest plugin is opt-in | accepted |
 | [0008](0008-a-tag-its-publisher-moves-is-a-range.md) | A tag its publisher moves is a range, not a version | accepted |
 | [0009](0009-an-unread-file-makes-the-run-incomplete.md) | A file StockTake could not read makes the whole run incomplete | accepted |
+| [0010](0010-a-run-that-checked-nothing-is-not-a-pass.md) | A run that checked nothing is not a pass | accepted |
 
 One record per significant decision: context, options considered, decision, consequences. A superseded record is kept and marked, never deleted.

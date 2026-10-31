@@ -1,9 +1,9 @@
 # StockTake: handoff
 
 ## Current state
-**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1**: the response to the first outside trial report. 477 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. The next session starts Milestone 6, or the one decision M5 left to the owner, or the next trial report.
+**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1 and M5.2**: the responses to the first two outside trial reports. 503 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. The next session starts Milestone 6, the one decision M5 left to the owner, the policy question M5.2 raised, or the next trial report.
 
-**It has been run against nine real projects** — well over two thousand dependencies, Python, Node and mixed — and found vulnerable dependencies in nearly every one. Three of its own bugs were found that way and only that way, and a tenth project ([Can-AI](feedback/2026-10-30-claude-code-session.md)) was handed it cold and wrote down what happened, which found three more.
+**It has been run against ten real projects** — well over two thousand dependencies, Python, Node and mixed — and found vulnerable dependencies in nearly every one. Three of its own bugs were found that way and only that way. Two more projects have been handed it cold and written down what happened: [Can-AI](feedback/2026-10-30-claude-code-session.md), which found three P0s, and [Pixel Galaxy Studio](feedback/2026-10-30-claude-code-windows-readme-cold-trial.md), which found none and instead found what the four untried adoption routes cost.
 
 It reads **four ecosystems**: `python` (seven manifest kinds), `npm` (`package.json`, `package-lock.json`, `node_modules`), `workflows` (GitHub Actions pins) and `binaries` (GitHub release downloads). It reports as text, JSON, SARIF or one line. It drops into another project's pytest suite in one line, writes its own test file with `stocktake init`, and writes itself as one dependency-free file with `stocktake vendor`.
 
@@ -11,12 +11,12 @@ It reads **four ecosystems**: `python` (seven manifest kinds), `npm` (`package.j
 
 Pushed through `1b01058`, and CI passes on Windows and Ubuntu across Python 3.11 and 3.13. See "Pushed, and CI is verified" below for what that settled. Several commits after it are local, waiting to be pushed.
 
-**A run can now exit 2 where it used to exit 0.** A dependency file StockTake cannot read makes the whole run incomplete ([ADR 0009](adr/0009-an-unread-file-makes-the-run-incomplete.md)). That is a behaviour change for anyone already running it, and the escape hatch for a file that is not really a manifest is `exclude`, which the message names.
+**A run can now exit 2 where it used to exit 0**, in two new cases. A dependency file StockTake cannot read makes the whole run incomplete ([ADR 0009](adr/0009-an-unread-file-makes-the-run-incomplete.md)); so does a project where *nothing at all* could be checked because every dependency file found is a kind it has no reader for ([ADR 0010](adr/0010-a-run-that-checked-nothing-is-not-a-pass.md)). Both are behaviour changes for anyone already running it. The escape hatches are `exclude` for a file that is not really a manifest, and `accept_unread` for a project that knows nothing of its can be read; each message names the one that applies.
 
 ```bash
 py -3.11 -m venv .venv
 ./.venv/Scripts/python -m pip install -e ".[dev]"   # .venv/bin/python on macOS and Linux
-./.venv/Scripts/python -m pytest                    # 477 tests, ~7s (includes the live check, via the plugin)
+./.venv/Scripts/python -m pytest                    # 503 tests, ~6s (includes the live check, via the plugin)
 ./.venv/Scripts/stocktake vendor vendored/          # after ANY change to the core, or a test fails
 ./.venv/Scripts/python -m stocktake                 # check this project itself
 ```
@@ -49,13 +49,13 @@ The owner pushed through `1b01058` on 2026-10-30, and everything that could not 
 **One thing that first run showed:** the code-scanning job installed `-e .` without the dev extra, so this project's own dev dependencies had nothing to resolve against and arrived in the security tab as four `unpinned` notes about its own tooling — correct, and useless. The job now installs `.[dev]`. Four open alerts from that first run will be superseded by the next one.
 
 ## Work in progress
-None. M0 to M5 and M5.1 are complete; M6 has not been started.
+None. M0 to M5, M5.1 and M5.2 are complete; M6 has not been started.
 
 ## Next steps
 1. **One decision the owner has to make**, recorded in [ROADMAP.md](ROADMAP.md) under M5 and in the PRD's open questions: whether to publish to PyPI. The metadata is ready and the name was free on 2026-10-30. Not a coding task.
 2. **Adoption in the owner's other projects belongs to those projects' own sessions**, not to this one. They have been *read* — which is how three bugs were found — and nothing in any of them has been changed. The findings for each are listed further down, so a session working in one of them can start from a concrete list.
 3. **Milestone 6** when there is appetite: container tags and the YAML lock files, both carried over from M3 with reasons.
-4. **Four of the five adoption routes have never been tried by an outsider.** The Can-AI trial installed from the repository path into a fresh venv and ran the CLI, and that is all: `stocktake = true` in a project's pytest config, `stocktake init`, the vendored single file and the CI route were not exercised, so its session could not say which route a stranger finds obvious. Every one of them has tests here and was verified by the sessions that built them — but never by somebody reading the README cold, which is exactly how the five documentation errors were found. Worth asking of the next trial explicitly.
+4. **One policy question, and it is the only feature request from either trial worth a yes.** There is no way to accept a *vulnerable* package wholesale with a reason and a date. `hold_back` covers being out of date, not being vulnerable, so accepting a known advisory means one `ignore_advisories` entry per id — 58 of them for one real project's `electron` and `tar` findings. Nobody writes that, so the real answer becomes "do not gate on it", which is worse than a policy entry. The shape asked for is `ignore_package` with a version, a reason and an `until`. Held because it widens what a policy can hide, and the per-id friction is exactly what stops a policy file becoming a blanket — so it wants deciding with the owner rather than in passing. Full reasoning in [ROADMAP.md](ROADMAP.md) under the second trial.
 5. **The next trial report.** The owner intends to hand StockTake to several more of their projects the way Can-AI was handed it, and to bring each report back here. The pattern to repeat: commit the report unchanged first, reproduce its headline findings before touching anything, then act. Everything from the first report that was deliberately **not** done is in [ROADMAP.md](ROADMAP.md) under "From the Can-AI trial", with the reason for each — read that before re-deciding any of it. The format reports follow is [feedback/README.md](feedback/README.md).
 
 **Known findings in the author's own repositories. Nothing was changed in any of them, and none of this has been acted on.**
@@ -142,6 +142,17 @@ The owner has about ten repositories available for this, and the list is the mos
 In [PRD.md](PRD.md) under "Open questions". None block M1. The one worth deciding soonest: whether to publish `stocktake` to PyPI now (the name is free as of 2026-10-29) or wait until there are two real consumers.
 
 ## Session log
+### Session 10 — 2026-10-30
+Acted on the second outside trial. Pixel Galaxy Studio's session was told to work from the README alone and exercise all five adoption routes — the four nobody outside had ever tried, which Session 9 had recorded as the open gap. It found **no P0s**: M5.1's work held, and every one of its findings is in a route the first trial never ran. It also matched `npm audit` package-for-package on three projects and validated five SARIF documents against 2.1.0. The report is committed unchanged as `3b06073`, with four new fixtures under `examples/w01` to `w04`.
+
+The headline fix is [ADR 0010](adr/0010-a-run-that-checked-nothing-is-not-a-pass.md), from a fixture nobody had thought to build: a Go project, whose `go.mod` and `pnpm-lock.yaml` are both kinds StockTake has no reader for. It reported `0 checked` and exited 0 — a permanently green CI gate over a project nobody had looked at, against the README's own definition of exit 0. A run that checked nothing is now incomplete, and `accept_unread` is the escape hatch the message names. Partial coverage still passes, and that boundary has a test saying so.
+
+The other P1s were all in the untried routes, which is the point of having run them. `assert_safe` now exists in the core and in the vendored copy, because the README's route-3 snippet asserted on `failure_text` and so showed a bare `AssertionError` with nothing in it. `failure_text`'s first line is no longer blank, which is why pytest printed `FAILED stocktake_dependency_check - ` and stopped. The CI snippet carries `shell: bash`, without which `||` is a parse error on `windows-latest` — **and this repository's own code-scanning workflow was still using the `|| true` the README tells everybody else not to use**, so a run that exited 2 was being uploaded as though it were a result. The install section now leads with `pip install git+...` rather than the contributor clone, and prints a dev-dependency line that was verified end to end rather than assumed.
+
+Smaller, all from the report: `STOCKTAKE_OFFLINE=1` is honoured on the command line as cache-only (it had been ignored outside pytest, found with a proxy log); each advisory names its own smallest fix beside the one that clears them all; the headline says `2 vulnerable (1 package)`; the unreadable notice prints once; the header uses the local date; the config suggestion lost a stray full stop.
+
+477 → 503 tests, all passing including the live one. Lint, format and strict mypy clean; `vendored/` regenerated. Verified by re-running all four `w` fixtures and all 22 `e` fixtures (`e06d-unread` now exits 2, which its own `EXPECTED.md` allowed for), the route-3 snippet on Python 3.11 with nothing installed, the dev-dependency install into a fresh venv, cache-only mode warm and cold, and five of the owner's own repositories read-only with no regressions. One P1 was left: the policy question in "Next steps", which is a decision rather than a defect. Committed locally; not pushed.
+
 ### Session 9 — 2026-10-30
 Acted on the first outside trial report. Can-AI was handed StockTake cold and ran it against ~30 purpose-built fixtures and a 665-dependency project, with ground truth written down before the run and a logging proxy to check what left the machine. It found **no false positives anywhere** and exact agreement with OSV and `npm audit` — and three ways StockTake could report a clean project it had not checked. The report is committed unchanged as `319a25e`, before any of it was acted on, and all three headline findings were reproduced locally first.
 

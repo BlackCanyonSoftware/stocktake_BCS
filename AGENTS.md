@@ -11,7 +11,7 @@ A dependency checker that drops into a project's own test suite. It reads what t
 ## Commands
 
 ```bash
-./.venv/Scripts/python -m pytest              # whole suite, incl. the live check (407 tests, ~6s)
+./.venv/Scripts/python -m pytest              # whole suite, incl. the live check (503 tests, ~6s)
 ./.venv/Scripts/python -m pytest -m "not network"
 ./.venv/Scripts/python -m ruff check .
 ./.venv/Scripts/python -m ruff format .
@@ -26,14 +26,14 @@ Setup: `py -3.11 -m venv .venv && ./.venv/Scripts/python -m pip install -e ".[de
 
 ```
 src/stocktake/
-  models.py        the vocabulary: Dep, Advisory, Finding, Report, Unread. Depends on nothing.
+  models.py        the vocabulary: Dep, Advisory, Finding, Report, Unread, Unreadable. Depends on nothing.
   versions.py      comparison, per ecosystem (PEP 440, SemVer, bare tags) + the moving-tag rule
   advisories.py    merging aliased advisories, ranking, naming the one version that clears them
   config.py        .stocktake.toml / [tool.stocktake]; every value validated as it is read
   policy.py        decisions with a reason and an expiry; an overdue entry fails
   scan.py          walking the tree, unread manifests, and which environment "installed" means
   evaluate.py      the judgement: Dep[] + registry answers -> Report. Pure given a Registries.
-  check.py         one whole run, and the fail/warn/skip rules. THE RULES LIVE HERE ONCE.
+  check.py         one whole run, the fail/warn/skip rules, and assert_safe. THE RULES LIVE HERE ONCE.
   cli.py           argparse, exit codes, the init and vendor subcommands. The only module that prints.
   readers/         project files -> Dep[]. NEVER touch the network.
   registries/      names -> versions and advisories. NEVER touch the project.

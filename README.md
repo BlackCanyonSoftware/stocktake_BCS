@@ -25,35 +25,44 @@ VULNERABLE (fix these)
       GHSA-w74x-v6f9-j3xg MODERATE: fast-uri vulnerable to URI scheme spoofing via percent-encoded scheme decoding
 ```
 
-Exit codes: **0** nothing unsafe, and the whole project was checked · **1** something unsafe · **2** the check could not be completed — a registry was unreachable, or a dependency file could not be read, so nothing is claimed either way ([ADR 0009](docs/adr/0009-an-unread-file-makes-the-run-incomplete.md)).
+Exit codes: **0** nothing unsafe, and the project was checked · **1** something unsafe · **2** the check could not be completed — a registry was unreachable, a dependency file could not be read, or every dependency file found was of a kind StockTake has no reader for, so nothing is claimed either way ([ADR 0009](docs/adr/0009-an-unread-file-makes-the-run-incomplete.md), [ADR 0010](docs/adr/0010-a-run-that-checked-nothing-is-not-a-pass.md)).
 
 ---
 
 ## Install
 
-> **StockTake is not on PyPI.** The source is public and installing from it works — `pip install git+...`, or a clone — and that is the supported route today. What does **not** work is `pip install stocktake` or `uv tool install stocktake`: the name is unclaimed by choice, not by accident. The two commented lines below are what to use once it is published; nothing else about using it changes.
+> **StockTake is not on PyPI.** Installing from source works and is the supported route today. What does **not** work is `pip install stocktake` or `uv tool install stocktake`: the name is unclaimed by choice, not by accident.
+
+```bash
+pip install git+https://github.com/BlackCanyonSoftware/stocktake_BCS
+stocktake --version
+```
+
+That is the whole install, and it gives the complete tool — all four ecosystems, the pytest plugin, SARIF and the vendor command. Verified in a clean environment on 2026-10-30 and again on 2026-10-30 from a stranger's point of view. It tracks the default branch, so it is as current as that branch is.
+
+**To declare it as a dev dependency** of a project — which routes 1 and 2 need, because the plugin has to be importable in the project's own test environment:
+
+```bash
+# in requirements-dev.txt (or any requirements file)
+stocktake @ git+https://github.com/BlackCanyonSoftware/stocktake_BCS
+
+# or with uv
+uv add --dev git+https://github.com/BlackCanyonSoftware/stocktake_BCS
+```
+
+The requirements line was verified on 2026-10-30: `pip install -r requirements-dev.txt` into a fresh venv, after which `stocktake = true` in the project's pytest config ran the check. Once StockTake is published, both become the plain name — `uv add --dev stocktake` — and nothing else about using it changes.
+
+Requires **Python 3.11 or later** and nothing else — any 3.11+ interpreter will do, so use whichever `python3` your machine already has rather than looking for a `python3.11` binary it may not have. The core has no dependencies at all and never will: a tool whose job is watching your supply chain is a poor advertisement for itself if adopting it widens that supply chain. (`packaging` is used for version comparison when it happens to be importable, with a built-in fallback when it is not.)
+
+**To work on StockTake itself**, clone it instead — this is the contributor install, not the one you want for checking your own project:
 
 ```bash
 git clone https://github.com/BlackCanyonSoftware/stocktake_BCS.git
 cd stocktake_BCS
-py -3.11 -m venv .venv                                   # python3 -m venv on macOS and Linux
-./.venv/Scripts/python -m pip install -e .                # .venv/bin/python elsewhere
-./.venv/Scripts/stocktake --version
-
-# Once published, instead of all of the above:
-#   uv tool install stocktake        # as a command, anywhere
-#   uv add --dev stocktake           # as a dev dependency of one project
+python3 -m venv .venv                                     # py -3.11 -m venv .venv on Windows
+./.venv/Scripts/python -m pip install -e ".[dev]"         # .venv/bin/python elsewhere
+./.venv/Scripts/python -m pytest
 ```
-
-Requires **Python 3.11 or later** and nothing else — any 3.11+ interpreter will do, so use whichever `python3` your machine already has rather than looking for a `python3.11` binary it may not have. The core has no dependencies at all and never will — a tool whose job is watching your supply chain is a poor advertisement for itself if adopting it widens that supply chain. (`packaging` is used for version comparison when it happens to be importable, with a built-in fallback when it is not.)
-
-**Installing from git** works and is what the CI route below uses:
-
-```bash
-pip install git+https://github.com/BlackCanyonSoftware/stocktake_BCS
-```
-
-Verified in a clean environment on 2026-10-30 to give the complete tool — all four ecosystems, the pytest plugin, SARIF and the vendor command. It tracks the default branch, so it is as current as that branch is.
 
 ---
 
@@ -109,6 +118,8 @@ Wherever the project already configures pytest works just as well — mind the s
 | `-m "not stocktake"` | deselect it like any other marked test |
 | `STOCKTAKE_OFFLINE=1` | force the skip, for a build that must not touch the network |
 
+`STOCKTAKE_OFFLINE=1` works on the command line as well, where there is no test to skip: StockTake answers from its cache and asks nobody. A warm cache gives a real report; anything not in it comes out `unknown`, which makes the run incomplete and exits 2 rather than claiming to be clean. It used to be ignored outside pytest, and queried all four services anyway.
+
 ### 2. A Python project, owning the test file
 
 ```bash
@@ -133,6 +144,16 @@ stocktake vendor .
 Writes `stocktake_vendored.py`: the whole core as one self-contained file, standard library only. Then:
 
 ```python
+import stocktake_vendored as stocktake
+
+report = stocktake.assert_safe(".")   # raises AssertionError CARRYING THE REPORT if anything is unsafe or unchecked
+```
+
+Use `assert_safe`, not `assert stocktake.failure_text(report) is None`. The second looks equivalent and is not: the text goes to nobody, so a build that goes red shows a bare `AssertionError` and not one word about the package, the advisory or the fix. A trial run wrote exactly that line from this README and hit exactly that.
+
+The longhand, when you want to decide what each case means for yourself:
+
+```python
 from pathlib import Path
 import stocktake_vendored as stocktake
 
@@ -142,7 +163,8 @@ if stocktake.skip_reason(report):           # registries unreachable: not a fail
     ...
 if stocktake.update_warning(report):        # a newer release exists: a warning, never a failure
     ...
-assert stocktake.failure_text(report) is None
+if wrong := stocktake.problems(report):     # unsafe, or the project was not fully checked
+    raise AssertionError(wrong)             # ... and pass the text on, or nobody learns what it was
 ```
 
 This is the route for a Node project, a Dockerfile-only repository, or anywhere a new Python dependency is not welcome. It is generated from the package, so refresh it by running `stocktake vendor` again rather than editing it. It does **not** include the pytest plugin, `stocktake init`, or the command line — a single file cannot carry those.
@@ -155,12 +177,13 @@ This is the route for a Node project, a Dockerfile-only repository, or anywhere 
     python-version: "3.13"
 - run: pip install git+https://github.com/BlackCanyonSoftware/stocktake_BCS
 - run: stocktake --format sarif > stocktake.sarif || [ $? -eq 1 ]
+  shell: bash          # required: `||` is a parse error in PowerShell, the default on windows-latest
 - uses: github/codeql-action/upload-sarif@v4
   with:
     sarif_file: stocktake.sarif
 ```
 
-`|| [ $? -eq 1 ]` allows exit 1 — it found something, which is exactly what there is to upload — and still fails the step on exit 2. Do not write `|| true` here: it swallows 2 as well, and 2 is the code that means the report cannot be trusted ([ADR 0009](docs/adr/0009-an-unread-file-makes-the-run-incomplete.md)). The findings then appear in the repository's code-scanning view on the lines they came from. Set `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` on the steps to raise GitHub's anonymous limit of 60 requests an hour. The job needs `permissions: security-events: write`.
+`|| [ $? -eq 1 ]` allows exit 1 — it found something, which is exactly what there is to upload — and still fails the step on exit 2. Do not write `|| true` here: it swallows 2 as well, and 2 is the code that means the report cannot be trusted ([ADR 0009](docs/adr/0009-an-unread-file-makes-the-run-incomplete.md)). `shell: bash` is not optional on a Windows runner: PowerShell 5.1 answers `The token '||' is not a valid statement separator in this version` and PowerShell 7 answers `ParserError: Missing type name after '['`. Both were reproduced locally on 2026-10-30. The findings then appear in the repository's code-scanning view on the lines they came from. Set `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` on the steps to raise GitHub's anonymous limit of 60 requests an hour. The job needs `permissions: security-events: write`.
 
 For a project with no Python in it at all, this plus the vendored file are the two routes — and the vendored file needs no install step.
 
@@ -178,7 +201,7 @@ Changes nothing, writes nothing in that project, and tells you where it stands. 
 
 The decision is just the table above; the traps are these.
 
-1. **Check how the project tests itself first.** `stocktake = true` only works if the project actually runs pytest. A Node project, or a Django project using `manage.py test`, needs route 3 or 4 — not route 1. Getting this wrong produces a config line that silently does nothing.
+1. **Check how the project tests itself first.** `stocktake = true` only works if the project actually runs pytest. A Node project, or a Django project using `manage.py test`, needs route 3 or 4 — not route 1. Getting this wrong produces a config line that does nothing, and the only symptom is one line from pytest: `PytestConfigWarning: Unknown config option: stocktake`. The same warning appears when the config line is right but StockTake is not installed in that test environment, so check the import before you change the config. `-W error::pytest.PytestConfigWarning` turns it into a failure if you would rather CI caught it.
 2. **Do not change any dependency pin as part of adopting it.** StockTake reports; acting on a report is a separate, reviewed change.
 3. **`stocktake init` and `stocktake vendor` write files.** `init` refuses to overwrite without `--force`; `vendor` always overwrites, because refreshing the generated file is the point. Neither touches anything else.
 4. **Expect exit 1 on the first run of a real project.** It means it found something, not that the setup is broken. All five projects it has been run against had vulnerable dependencies.

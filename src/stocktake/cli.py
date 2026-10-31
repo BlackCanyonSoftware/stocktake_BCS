@@ -7,6 +7,7 @@ can be exercised in a test with a fake network, a temporary project and a fixed 
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from collections.abc import Callable, Sequence
 from datetime import date
@@ -14,17 +15,38 @@ from pathlib import Path
 
 from stocktake._version import __version__
 from stocktake.check import incomplete_text, run_check
-from stocktake.config import CONFIG_NAME, ConfigError
+from stocktake.config import CONFIG_NAME, DEFAULT_CACHE_TTL_HOURS, ConfigError
 from stocktake.init_project import FAILED, WRITTEN, init_project
 from stocktake.models import Report
 from stocktake.readers import InstalledFn
-from stocktake.registries import Registries
+from stocktake.registries import Cache, OfflineError, Registries
 from stocktake.report import FORMATS, ONLY_CHOICES, render_json, render_sarif, render_summary, render_text
 from stocktake.vendor import VENDORED_NAME, VendorError, write
 
 OK = 0
 UNSAFE = 1
 INCOMPLETE = 2
+
+# Set this and no request leaves the machine. The pytest plugin has always honoured it, by skipping; the command line ignored it entirely and
+# queried all four services, which a trial run found by setting it and watching a proxy log. Honoured here as "answer from the cache and ask
+# nobody", which is the useful reading: a warm cache still gives a real report, and anything not in it comes out `unknown` rather than
+# guessed at, so the run is incomplete and exits 2 rather than claiming to be clean.
+OFFLINE_ENV = "STOCKTAKE_OFFLINE"
+
+
+def _refuse_to_fetch(url: str, body: dict[str, object] | None = None) -> object:  # noqa: ARG001  (must match FetchFn)
+    """The fetcher used when `STOCKTAKE_OFFLINE` is set: the cache answers, or nothing does."""
+    raise OfflineError(f"{OFFLINE_ENV} is set, so nothing was requested")
+
+
+def _cache_only() -> Registries:
+    """Registry clients that can read the cache and cannot reach the network.
+
+    The default lifetime, not the project's `cache.ttl_hours`: the cache has to exist before the config is read, and a project that shortened
+    its TTL did so to get fresher answers, of which there are none to be had here.
+    """
+    return Registries(Cache(fetch=_refuse_to_fetch, ttl=int(DEFAULT_CACHE_TTL_HOURS * 3600)))
+
 
 EPILOG = """other commands:
   stocktake init        write the check into this project's test suite (`stocktake init --help`)
@@ -43,6 +65,8 @@ Only package names and versions leave this machine, to pypi.org, registry.npmjs.
 No file in the project is ever modified. Answers are cached for six hours; --refresh ignores the cache.
 The cache lives in your user cache directory and a large project can fill tens of megabytes of it.
 Set GITHUB_TOKEN to raise GitHub's anonymous limit of 60 requests an hour; it is sent to GitHub alone.
+Set STOCKTAKE_OFFLINE=1 to answer from the cache and make no request at all; anything not cached is then
+unknown, so the run is incomplete and exits 2.
 """
 
 
@@ -111,12 +135,15 @@ def run(
         print(f"stocktake: {project} is not a directory", file=sys.stderr)
         return INCOMPLETE
 
+    # Built here, not in `run_check`: which network to use is the caller's business, and `check.py` owns the rules only.
+    asking = registries if registries is not None or not os.environ.get(OFFLINE_ENV) else _cache_only()
+
     try:
         report = run_check(
             project,
             config_path=Path(args.config).expanduser() if args.config else None,
             environment=args.environment,
-            registries=registries,
+            registries=asking,
             installed=installed,
             today=today,
             refresh=args.refresh,
@@ -127,11 +154,11 @@ def run(
 
     out(_rendered(report, args))
 
-    # On stderr, so a `--format json` run stays machine-readable on stdout while a person watching the terminal is still told. Printed even
-    # when something unsafe was also found: the exit code can only carry one of the two, and this is the one the report cannot show.
+    # On stderr, so a `--format json` run stays machine-readable on stdout while a person watching the terminal is still told. Not for the
+    # text format, which already prints the same words as an UNREADABLE section: under `2>&1` the two read as a stutter.
     incomplete = incomplete_text(report)
-    if incomplete is not None:
-        print(f"\nstocktake: {incomplete}", file=sys.stderr)
+    if incomplete is not None and args.format != "text":
+        print(f"stocktake: {incomplete}", file=sys.stderr)
 
     # Incomplete outranks unsafe. A 1 says "I checked and found this"; a 2 says "do not read a verdict into this run", and that has to win,
     # because the findings in an incomplete run are a floor and not an answer (docs/adr/0009).

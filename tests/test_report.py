@@ -158,3 +158,27 @@ def test_the_json_report_is_valid_json_even_when_offline(tmp_path):
     net.offline = True
     data = json.loads(render_json(judged(tmp_path, [pin("a", "1.0")], net)))
     assert data["offline"] and data["failed"] is False
+
+
+# ---------- the headline's units ----------
+def test_the_headline_names_packages_as_well_as_findings(tmp_path):
+    """`11 vulnerable` was eight packages, and the obvious thing to compare it against is `npm audit`, which counts packages.
+
+    One package declared in both `package.json` and its lock file is two findings, because fixing it means editing both. Saying only the
+    finding count makes that comparison look like a disagreement.
+    """
+    net = FakeNet(npm={"lodash": "4.17.21"}, osv={("lodash", "4.17.15"): ["GHSA-1"]}, details={"GHSA-1": advisory_detail("bad")})
+    deps = [
+        Dep("npm", "lodash", "4.17.15", "package.json", "^4.17.0", "runtime"),
+        Dep("npm", "lodash", "4.17.15", "package-lock.json", "==4.17.15", "locked"),
+    ]
+    report = evaluate(deps, registries(tmp_path, net), today=TODAY)
+    assert "2 vulnerable (1 package)" in render_text(report).splitlines()[0]
+
+
+def test_the_headline_says_nothing_extra_when_the_two_counts_agree(tmp_path):
+    net = FakeNet(pypi={"a": ("1.0", [])}, osv={("a", "1.0"): ["GHSA-1"]}, details={"GHSA-1": advisory_detail("bad")})
+    report = evaluate([pin("a", "1.0")], registries(tmp_path, net), today=TODAY)
+    headline = render_text(report).splitlines()[0]
+    assert "1 vulnerable," in headline
+    assert "package" not in headline

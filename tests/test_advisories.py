@@ -3,7 +3,7 @@
 This is the code that turns ninety OSV entries for one package into something a person acts on, so it is tested on its own.
 """
 
-from stocktake.advisories import fix_target, merge_advisories, severity_tally
+from stocktake.advisories import fix_for, fix_target, merge_advisories, severity_tally
 from stocktake.models import Advisory
 
 
@@ -55,3 +55,26 @@ def test_an_advisory_naming_no_fix_gives_no_target_rather_than_a_guess():
 def test_the_severity_tally_counts_worst_first_and_in_the_words_the_report_prints():
     tally = severity_tally([adv("a", "MODERATE"), adv("b", "CRITICAL"), adv("c", "MODERATE"), adv("d", "")])
     assert tally == [("critical", 1), ("moderate", 2), ("unrated", 1)]
+
+
+# ---------- the smallest hop for one advisory ----------
+def test_each_advisory_names_its_own_smallest_fix():
+    """The package-level target is the largest of these, and for a package with dozens of advisories it can be many majors away.
+
+    Somebody deciding whether to accept the risk for a quarter wants the smallest hop, which is per advisory and not per package.
+    """
+    low = Advisory("GHSA-1", "LOW", fixed=("1.1.0",))
+    high = Advisory("GHSA-2", "HIGH", fixed=("4.0.0",))
+    assert fix_for(low, "1.0.0") == "1.1.0"
+    assert fix_for(high, "1.0.0") == "4.0.0"
+    assert fix_target([low, high], "1.0.0") == "4.0.0", "the one upgrade that clears both is still the largest"
+
+
+def test_an_advisory_naming_no_fix_has_no_smallest_hop():
+    assert fix_for(Advisory("GHSA-1", "HIGH"), "1.0.0") is None
+
+
+def test_a_fix_backported_to_a_branch_we_are_not_on_is_not_the_answer():
+    """Two fixed versions, one behind us: the useful one is the smallest that is actually ahead."""
+    advisory = Advisory("GHSA-1", "HIGH", fixed=("1.0.5", "2.1.0"))
+    assert fix_for(advisory, "2.0.0") == "2.1.0"

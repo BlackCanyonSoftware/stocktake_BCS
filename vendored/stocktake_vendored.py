@@ -8,13 +8,21 @@ one has a known advisory, and judges the answers. It never edits a file, and the
 
     import stocktake_vendored as stocktake
 
+    report = stocktake.assert_safe(".")   # raises AssertionError CARRYING THE REPORT on anything unsafe or unchecked
+
+Use `assert_safe` rather than asserting on `failure_text` yourself. `assert failure_text(report) is None` passes the text to nobody, so a
+build that goes red shows a bare AssertionError and not one word about the package, the advisory or the fix.
+
+The longhand, when you want to decide for yourself what each case means:
+
     report = stocktake.run_check(Path("."))
-    assert stocktake.failure_text(report) is None     # fails on vulnerable, withdrawn, or an overdue policy entry
 
     if stocktake.skip_reason(report):                 # the registries could not be reached: not a failure
         ...
     if stocktake.update_warning(report):              # a newer release exists: a warning, never a failure
         ...
+    if (wrong := stocktake.problems(report)):         # unsafe, or the project was not fully checked
+        raise AssertionError(wrong)                   # ... and pass the text on, or nobody learns what it was
 
 Not included, because they need things a single file cannot carry: the pytest plugin, `stocktake init`, and the command line.
 """
@@ -30,7 +38,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from dataclasses import dataclass
 from dataclasses import field
-from datetime import UTC
 from datetime import date
 from datetime import datetime
 from fnmatch import fnmatch
@@ -209,13 +216,28 @@ class Report:
         return bool(self.policy_problems) or any(f.severity == "fail" for f in self.findings)
 
     @property
+    def nothing_was_checked(self) -> bool:
+        """True when the run found dependency manifests of a kind nothing reads yet, and reached no finding at all.
+
+        A Go project — `go.mod` and a `pnpm-lock.yaml`, nothing else — used to print `0 checked`, name both files as unread, and exit 0,
+        which made a CI gate on it permanently green over a project nobody had looked at (docs/adr/0010).
+
+        Partial coverage is not this. Two hundred Python pins checked beside one unread `go.mod` is a bounded, named gap and still exits 0.
+        Zero coverage is a different claim, and the only honest answer to it is that there is no answer.
+
+        Reads `unread_manifests`, which holds only the manifests the project has *not* acknowledged. One listed in `accept_unread` lands in
+        `accepted_unread` instead, so a project that has said "I know, this is all you will find" gets its exit 0 back.
+        """
+        return not self.findings and bool(self.unread_manifests)
+
+    @property
     def complete(self) -> bool:
         """Whether this run actually covers the project it was pointed at.
 
-        An incomplete run is not a passing run, however clean the findings in it look. Both ways it can be incomplete amount to the same
-        thing — part of the project went unchecked — so both answer here, and the exit code treats them alike (docs/adr/0009).
+        An incomplete run is not a passing run, however clean the findings in it look. Every way it can be incomplete amounts to the same
+        thing — the project went unchecked — so all of them answer here, and the exit code treats them alike (docs/adr/0009, docs/adr/0010).
         """
-        return self.offline is None and not self.unreadable
+        return self.offline is None and not self.unreadable and not self.nothing_was_checked
 
     @property
     def counts(self) -> dict[str, int]:
@@ -401,21 +423,27 @@ def merge_advisories(items: Sequence[Advisory], ecosystem: str = "PyPI") -> list
     return sorted(merged, key=lambda a: (-a.rank, a.id))
 
 
+def fix_for(advisory: Advisory, current: str, ecosystem: str = "PyPI") -> str | None:
+    """The smallest version that clears this one advisory, or None when it names no fix.
+
+    Smallest that is actually ahead of where we are, because a fix backported to a branch we are not on does not help us. Worth having on its
+    own and not only inside `fix_target`: when a package carries forty-six advisories, the overall target can be nine major versions away,
+    and somebody deciding whether to accept the risk for a quarter needs to know what the smallest hop is.
+    """
+    ahead = [f for f in advisory.fixed if is_newer(f, current, ecosystem)] or list(advisory.fixed)
+    return min(ahead, key=lambda version: sort_key(version, ecosystem)) if ahead else None
+
+
 def fix_target(advisories: Sequence[Advisory], current: str, ecosystem: str = "PyPI") -> str | None:
     """The single version that clears every advisory that names a fix, or None when none of them name one.
 
-    Per advisory, the smallest fix that is actually ahead of where we are, because a fix backported to a branch we are not on does not help us.
-    Overall, the largest of those, because the upgrade has to satisfy all of them at once.
+    The largest of the per-advisory targets, because the upgrade has to satisfy all of them at once.
     """
 
     def key(version: str) -> tuple[Any, ...]:
         return sort_key(version, ecosystem)
 
-    targets = []
-    for advisory in advisories:
-        ahead = [f for f in advisory.fixed if is_newer(f, current, ecosystem)] or list(advisory.fixed)
-        if ahead:
-            targets.append(min(ahead, key=key))
+    targets = [target for a in advisories if (target := fix_for(a, current, ecosystem)) is not None]
     return max(targets, key=key) if targets else None
 
 
@@ -912,6 +940,9 @@ def _incomplete(report: Report) -> str | None:
     if report.unreadable:
         files = "file" if len(report.unreadable) == 1 else "files"
         return f"{len(report.unreadable)} dependency {files} could not be read"
+    if report.nothing_was_checked:
+        files = "file" if len(report.unread_manifests) == 1 else "files"
+        return f"nothing checked, {len(report.unread_manifests)} dependency {files} have no reader yet"
     return None
 
 
@@ -976,11 +1007,8 @@ def render_summary(report: Report) -> str:
         return f"stocktake: {', '.join(unsafe)} {_checked(report)}"
 
     if not total:
-        # "nothing found to check" is true and, on its own, misleading for a project whose manifests are all of kinds nothing reads yet: the
-        # text report named them and the one line did not, and the one line is what goes in the CI step.
-        if report.unread_manifests:
-            files = "file" if len(report.unread_manifests) == 1 else "files"
-            return f"stocktake: nothing found to check, {len(report.unread_manifests)} unread {files}"
+        # A project whose manifests are all of a kind nothing reads yet never reaches here: that is an incomplete run, and `_incomplete`
+        # above answers it. This is a project with no dependency file at all, which is a different and much rarer thing.
         return "stocktake: nothing found to check"
 
     # "nothing unsafe" is a claim about what was actually resolved, so it is not made at all when nothing was.
@@ -2201,9 +2229,15 @@ def _rows(report: Report, status: str) -> list[Finding]:
 
 def _headline(report: Report) -> str:
     counts = report.counts
+    # `11 vulnerable` was eight packages, one of them declared at four versions, and the obvious thing to compare it against is `npm audit`,
+    # which counts packages. Naming both units costs a few characters and stops the comparison looking like a disagreement.
+    vulnerable = f"{counts['vulnerable']} vulnerable"
+    packages = len({(f.dep.ecosystem, f.dep.name) for f in report.findings if f.status == "vulnerable"})
+    if packages and packages != counts["vulnerable"]:
+        vulnerable += f" ({packages} package{'' if packages == 1 else 's'})"
     line = (
         f"Dependency check {report.today}: {len(report.findings)} checked, "
-        f"{counts['vulnerable']} vulnerable, {report.withdrawn_count} withdrawn, {counts['outdated']} outdated, {counts['unpinned']} unpinned"
+        f"{vulnerable}, {report.withdrawn_count} withdrawn, {counts['outdated']} outdated, {counts['unpinned']} unpinned"
     )
     # Both of these say the report below is partial, which matters more than anything in it, so both go on the first line.
     if report.offline:
@@ -2225,7 +2259,12 @@ def _vulnerable_row(finding: Finding, width: int, all_advisories: bool, top: int
     lines = [f"  {dep.source:<{width}} {dep.name} {dep.version}  {len(finding.advisories)} {plural} ({tally}){fix}{withdrawn}"]
 
     shown = finding.advisories if all_advisories else finding.advisories[:top]
-    lines += [f"      {a.id} {a.label}: {a.summary}" for a in shown]
+    for advisory in shown:
+        # Each advisory's own smallest fix. The package-level target is the largest of these, which for a package carrying dozens of them can
+        # be many majors away and tells nobody which single upgrade would clear which problem.
+        each = fix_for(advisory, dep.version or "0", dep.ecosystem)
+        cleared = f"  [fixed in {each}]" if each and each != target else ""
+        lines.append(f"      {advisory.id} {advisory.label}: {advisory.summary}{cleared}")
     if len(shown) < len(finding.advisories):
         lines.append(f"      ... and {len(finding.advisories) - len(shown)} more ({_HINT})")
     return lines
@@ -2244,7 +2283,9 @@ def render_text(report: Report, only: str = "all", all_advisories: bool = False,
             why = "Every dependency file found could not be read, so nothing could be checked. The reasons are below."
         elif report.unread_manifests:
             why = (
-                "Nothing could be checked: every dependency file found is of a kind StockTake has no reader for yet. They are named below."
+                "Nothing was checked: every dependency file found is of a kind StockTake has no reader for yet, so this run says nothing "
+                "about the project either way. They are named below. If that is expected, `accept_unread` in the project's config makes "
+                "this a pass again."
             )
         else:
             why = "Nothing was found to check. If that is a surprise, the project's excludes or enabled ecosystems are the place to look."
@@ -2443,7 +2484,9 @@ def _reject_unknown_keys(path: Path, table: Mapping[str, Any], known: frozenset[
         return
     named = ", ".join(f"`{key}`" for key in unknown)
     suggestion = _suggest(unknown[0], known) if len(unknown) == 1 else ""
-    raise ConfigError(f"{path}: {where}: {named}{suggestion}. Valid: {', '.join(sorted(known))}")
+    # No full stop after a suggestion: it already ends in a question mark, and `did you mean `exclude`?.` is what came out before.
+    stop = "" if suggestion else "."
+    raise ConfigError(f"{path}: {where}: {named}{suggestion}{stop} Valid: {', '.join(sorted(known))}")
 
 
 def _build(path: Path, table: Mapping[str, Any]) -> Config:
@@ -2634,7 +2677,9 @@ def evaluate(
     unreadable: Sequence[Unreadable] = (),
 ) -> Report:
     """What one run of the check found."""
-    today = today or datetime.now(UTC).date()
+    # The local date, not UTC. The header is read by a person, and a run at 19:46 on the 30th that prints "2026-10-31" looks like a bug the
+    # first time somebody meets it. A caller wanting a fixed or UTC date passes one.
+    today = today or datetime.now().astimezone().date()
     unread = unread or Unread()
     policy = policy or Policy()
     ignored = policy.ignored_advisories(today)
@@ -3033,6 +3078,17 @@ def incomplete_text(report: Report) -> str | None:
     suite has no exit code to carry the distinction, and a warning in a pytest summary is how this became invisible in the first place
     (docs/adr/0009).
     """
+    if report.nothing_was_checked:
+        count = len(report.unread_manifests)
+        files = "file" if count == 1 else "files"
+        named = ", ".join(report.unread_manifests)
+        return (
+            f"StockTake checked nothing in this project. The only {count} dependency {files} it found "
+            f"({named}) are of a kind it has no reader for yet, so this run says nothing about the project either way.\n"
+            "\n"
+            "If that is expected, list them in `accept_unread` in the project's config and this becomes a pass again."
+        )
+
     if not report.unreadable:
         return None
     count = len(report.unreadable)
@@ -3042,6 +3098,33 @@ def incomplete_text(report: Report) -> str | None:
     lines.append("")
     lines.append("Fix the file, or exclude it in the project's config if it is not meant to be read.")
     return "\n".join(lines)
+
+
+def problems(report: Report) -> str | None:
+    """Everything wrong with this run and with this project, as one message, or None when there is nothing to say.
+
+    The incomplete part comes first when both apply: it says how much of what follows to trust.
+    """
+    trouble = [text for text in (incomplete_text(report), failure_text(report)) if text is not None]
+    return "\n".join(trouble) if trouble else None
+
+
+def assert_safe(root: Path | str = ".", **kwargs: Any) -> Report:
+    """Run the check and raise `AssertionError` carrying the whole report when something is wrong. Returns the report when nothing is.
+
+    For a project driving StockTake from a plain script or a non-pytest test runner — which the single-file copy exists for. The obvious
+    thing to write by hand is `assert failure_text(report) is None`, and a trial run found what that costs: a bare `AssertionError` with a
+    traceback and not one word about the package, the advisory or the fix. The person whose build just went red learns nothing.
+
+    Raises rather than returning a flag so it cannot be ignored, and raises `AssertionError` specifically so a test runner reports it as a
+    failed assertion rather than an error in the tooling. The rules are `problems`, which is the same pair of rules the pytest plugin and the
+    command line use; nothing here decides anything of its own.
+    """
+    report = run_check(Path(root), **kwargs)
+    message = problems(report)
+    if message is not None:
+        raise AssertionError(message)
+    return report
 
 
 def update_warning(report: Report) -> str | None:
@@ -3059,8 +3142,18 @@ def failure_text(report: Report) -> str | None:
 
     The report itself is the message. Narrowed to what must be fixed, because a failure that also lists thirteen merely-old packages is a
     failure people learn to skim.
+
+    The first line says what happened in words. pytest prints the first line of an assertion message after the dash in its one-line summary,
+    and this used to begin with a blank line, so every failing run showed `FAILED stocktake_dependency_check - ` and nothing after it.
     """
-    return "\n" + render_text(report, "vulnerable") if report.failed else None
+    if not report.failed:
+        return None
+    counts = report.counts
+    parts = [f"{counts[status]} {word}" for status, word in (("vulnerable", "vulnerable"), ("yanked", "withdrawn")) if counts[status]]
+    if report.policy_problems:
+        entries = "entry" if len(report.policy_problems) == 1 else "entries"
+        parts.append(f"{len(report.policy_problems)} policy {entries} overdue")
+    return f"StockTake found {', '.join(parts)}.\n\n" + render_text(report, "vulnerable")
 
 # ======================================================================================================================
 # names that were renamed on import, put back

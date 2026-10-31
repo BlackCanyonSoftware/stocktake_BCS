@@ -160,7 +160,9 @@ def _reject_unknown_keys(path: Path, table: Mapping[str, Any], known: frozenset[
         return
     named = ", ".join(f"`{key}`" for key in unknown)
     suggestion = _suggest(unknown[0], known) if len(unknown) == 1 else ""
-    raise ConfigError(f"{path}: {where}: {named}{suggestion}. Valid: {', '.join(sorted(known))}")
+    # No full stop after a suggestion: it already ends in a question mark, and `did you mean `exclude`?.` is what came out before.
+    stop = "" if suggestion else "."
+    raise ConfigError(f"{path}: {where}: {named}{suggestion}{stop} Valid: {', '.join(sorted(known))}")
 
 
 def _build(path: Path, table: Mapping[str, Any]) -> Config:

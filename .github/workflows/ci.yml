@@ -79,8 +79,11 @@ jobs:
       - run: python -m pip install -e ".[dev]"
 
       - name: Produce the SARIF
-        # Exit 1 means it found something unsafe, which is exactly what there is to upload.
-        run: python -m stocktake --format sarif > stocktake.sarif || true
+        # Exit 1 means it found something unsafe, which is exactly what there is to upload, so it is allowed. Exit 2 means the run did not
+        # cover the project, and uploading that as though it were a result is how an empty security tab comes to look like a clean one --
+        # `|| true` swallowed both, which is what the README tells everybody else not to do.
+        run: python -m stocktake --format sarif > stocktake.sarif || [ $? -eq 1 ]
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

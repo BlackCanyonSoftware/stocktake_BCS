@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 
 from stocktake.models import Advisory, Dep, Finding, Report, Unread, Unreadable, normalize
 from stocktake.policy import Policy
@@ -110,7 +110,9 @@ def evaluate(
     unreadable: Sequence[Unreadable] = (),
 ) -> Report:
     """What one run of the check found."""
-    today = today or datetime.now(UTC).date()
+    # The local date, not UTC. The header is read by a person, and a run at 19:46 on the 30th that prints "2026-10-31" looks like a bug the
+    # first time somebody meets it. A caller wanting a fixed or UTC date passes one.
+    today = today or datetime.now().astimezone().date()
     unread = unread or Unread()
     policy = policy or Policy()
     ignored = policy.ignored_advisories(today)

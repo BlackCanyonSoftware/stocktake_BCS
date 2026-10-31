@@ -290,3 +290,44 @@ def test_the_help_text_explains_the_exit_codes_and_what_leaves_the_machine():
     assert "Only package names and versions leave this machine" in help_text
     for flag in ("--root", "--config", "--format", "--only", "--refresh", "--all-advisories", "--version"):
         assert flag in help_text
+
+
+# ---------- STOCKTAKE_OFFLINE on the command line ----------
+def test_the_offline_variable_stops_the_command_asking_anybody(tmp_path, monkeypatch):
+    """It had always worked in the pytest plugin, by skipping, and the command line ignored it and queried all four services.
+
+    Honoured here as "answer from the cache and ask nobody", so a warm cache still gives a real report and anything missing is `unknown`
+    rather than guessed at — which makes the run incomplete, and exit 2 rather than a claim of being clean.
+    """
+    monkeypatch.setenv("STOCKTAKE_OFFLINE", "1")
+    monkeypatch.setenv("STOCKTAKE_CACHE", str(tmp_path / "cold.json"))
+    printed: list[str] = []
+    code = run(["--root", str(project(tmp_path)), "--format", "summary"], out=printed.append, installed=lambda name: None, today=TODAY)
+    assert code == INCOMPLETE
+    assert "STOCKTAKE_OFFLINE is set" in printed[-1]
+
+
+def test_without_the_variable_the_command_asks_as_usual(tmp_path):
+    code, text = check(tmp_path, project(tmp_path), FakeNet(pypi={"a": ("2.0", [])}), ["--format", "summary"])
+    assert code == OK
+    assert "1 outdated" in text
+
+
+# ---------- the unreadable notice, once ----------
+def test_the_unreadable_notice_is_not_printed_twice_for_the_text_report(tmp_path, capsys):
+    """The text report already carries an UNREADABLE section. Printing the same words to stderr as well read as a stutter under `2>&1`."""
+    root = project(tmp_path)
+    (root / "package.json").write_text("{broken", encoding="utf-8")
+    code, text = check(tmp_path, root, FakeNet(pypi={"a": ("2.0", [])}))
+    assert code == INCOMPLETE
+    assert "UNREADABLE" in text
+    assert capsys.readouterr().err == ""
+
+
+def test_a_machine_readable_run_still_says_so_on_stderr(tmp_path, capsys):
+    """Nothing in the JSON lands in front of a person watching the terminal, so that is the one case the notice is for."""
+    root = project(tmp_path)
+    (root / "package.json").write_text("{broken", encoding="utf-8")
+    code, _text = check(tmp_path, root, FakeNet(pypi={"a": ("2.0", [])}), ["--format", "json"])
+    assert code == INCOMPLETE
+    assert "could not read" in capsys.readouterr().err

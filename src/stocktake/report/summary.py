@@ -21,6 +21,9 @@ def _incomplete(report: Report) -> str | None:
     if report.unreadable:
         files = "file" if len(report.unreadable) == 1 else "files"
         return f"{len(report.unreadable)} dependency {files} could not be read"
+    if report.nothing_was_checked:
+        files = "file" if len(report.unread_manifests) == 1 else "files"
+        return f"nothing checked, {len(report.unread_manifests)} dependency {files} have no reader yet"
     return None
 
 
@@ -85,11 +88,8 @@ def render_summary(report: Report) -> str:
         return f"stocktake: {', '.join(unsafe)} {_checked(report)}"
 
     if not total:
-        # "nothing found to check" is true and, on its own, misleading for a project whose manifests are all of kinds nothing reads yet: the
-        # text report named them and the one line did not, and the one line is what goes in the CI step.
-        if report.unread_manifests:
-            files = "file" if len(report.unread_manifests) == 1 else "files"
-            return f"stocktake: nothing found to check, {len(report.unread_manifests)} unread {files}"
+        # A project whose manifests are all of a kind nothing reads yet never reaches here: that is an incomplete run, and `_incomplete`
+        # above answers it. This is a project with no dependency file at all, which is a different and much rarer thing.
         return "stocktake: nothing found to check"
 
     # "nothing unsafe" is a claim about what was actually resolved, so it is not made at all when nothing was.
