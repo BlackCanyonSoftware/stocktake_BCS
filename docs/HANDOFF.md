@@ -127,7 +127,8 @@ These come from the original's first real run and from building M0. None should 
   PYTHONPATH="C:/Users/Kpier/Documents/Brand Logos/src" py -3.13 -m brandkit check  stocktake docs/brand --set readme
   ```
 
-  `brandkit` is not installed or on PATH; that is how to run it from its source, and its only dependencies (Pillow, fontTools) are already in the global Python 3.13. `BUNDLE.json` beside the images is what `check` compares against, so leave it there.
+  `brandkit` is not installed or on PATH; that is how to run it from its source, and its only dependencies (Pillow, fontTools) are already in the global Python 3.13. **`py -3.13` specifically** - a bare `py` is 3.11 here and has neither, which costs a few minutes to rediscover. `BUNDLE.json` beside the images is what `check` compares against, so leave it there.
+- **The `readme` set is two files, and that is deliberate.** `BUNDLE.json` lists exactly the light and dark banner PNGs. The `app` set beside it carries 41, including `template/fonts.css` and `font/chivo.woff`, and none of those belong here: StockTake tracks no CSS, no HTML, no JS and no fonts, so there is nothing to link a stylesheet *from*, and the one surface that shows the brand is a Markdown README, where GitHub's sanitiser strips `<link>` and `<style>`. BRAND.md says this itself, under "Taking this into a project": *"A repository is not an application. A command-line tool has no screen, and a `static/brand` folder of stylesheets, fonts and maskable icons in a project that has no `static/` is a set nobody will keep in step."* The typeface reaches StockTake through the banner art, which is drawn with it, so re-running `bundle` **is** how a typeface change lands here. Measured, not assumed: `check --set readme` validates only the two files it knows and says "matches" even with extra files beside them, so anything else copied in would rot silently and nothing would report it.
 - **`BRAND.md` in `Brand Logos/dist/stocktake/` is the only file to consult about the brand**, and it says so itself: if a job is not listed there, ask for one rather than picking a file that looks close. That is how the README job came to exist.
 
 ## Projects to try it on (M5)
@@ -141,6 +142,15 @@ The owner has about ten repositories available for this, and the list is the mos
 In [PRD.md](PRD.md) under "Open questions". None block M1. The one worth deciding soonest: whether to publish `stocktake` to PyPI now (the name is free as of 2026-10-29) or wait until there are two real consumers.
 
 ## Session log
+### Session 12 - 2026-11-01
+Re-synced the brand assets after the kit was rebuilt as 1.49.0 and this product's typeface changed to Chivo. `brandkit check` showed both banner PNGs had drifted; `brandkit bundle stocktake docs/brand --set readme` replaced them and `check` now says the copy matches. Both cuts were opened and read correctly, and the README's `<picture>` block already matches what BRAND.md prescribes today (the pair, dark source first, `width="480"`, `align` on the paragraph), so nothing there needed changing. Three files changed: the two PNGs and the hashes in `BUNDLE.json`.
+
+The instruction also asked to link `template/fonts.css`, ship `font/*.woff` beside it and drop any hard-coded `font-family` from our own CSS. **None of that has a target in this repository, and BRAND.md is the authority saying so** - the detail is now recorded beside the brandkit commands above so it is not attempted again. In short: StockTake tracks no CSS, HTML, JS or font file at all (checked with `git ls-files`; every `font-family` match in the tree is inside `.venv`), the `readme` set is two PNGs by definition, and the typeface arrives in the drawn banner art rather than through a stylesheet. `docs/DESIGN.md` has said the same thing since it was written: the web-app parts of the house standard are "deliberately absent" for a CLI tool.
+
+One thing I got wrong and corrected by testing rather than asserting: I expected `brandkit check --set readme` to flag extra files copied into `docs/brand`, and it does not - it validates its two files and ignores everything else. The bare `check` against the app set does report extras as "not part of the bundle". That is why the argument above rests on there being nothing to load the sheet, not on the checker catching it.
+
+No code changed, so no tests, lint, mypy or `vendored/` regeneration were in scope; the suite was run anyway and is green at 528. Committed locally; not pushed.
+
 ### Session 11 - 2026-10-30
 Added `[[policy.ignore_package]]`, the one feature request from either trial worth a yes, after the owner said yes to it. A project can now accept a vulnerable package at a version in one entry instead of one entry per advisory id - 58 of them for one real project's `electron` and `tar` findings, which is a file nobody writes, and the trial's own conclusion was therefore to not gate on the check at all. [ADR 0011](adr/0011-accepting-a-vulnerable-package.md) records the counter-argument it had been held on, and what changed: the per-advisory friction was protecting the wrong thing, because a gate that is off reports nothing.
 
