@@ -130,7 +130,7 @@ def test_the_comparison_above_is_actually_exercising_something(tmp_path):
     counts = report.counts
     assert counts["vulnerable"] >= 1 and counts["outdated"] >= 1 and counts["unpinned"] >= 1 and counts["current"] >= 1
     assert report.unread_manifests == ("go.mod",)
-    assert {f.dep.ecosystem for f in report.findings} == {"PyPI", "npm", "GitHub"}
+    assert {f.dep.ecosystem for f in report.findings} == {"PyPI", "npm", "GitHub", "Docker"}
 
 
 def test_the_copy_offers_the_api_its_own_docstring_promises():
@@ -150,8 +150,8 @@ def test_the_copy_offers_the_api_its_own_docstring_promises():
 
 def test_the_copy_has_every_reader_registered():
     copy = vendored()
-    assert copy.groups() == ("python", "binaries", "npm", "workflows")
-    assert len(copy.READERS) == 10
+    assert copy.groups() == ("binaries", "containers", "npm", "python", "workflows")
+    assert len(copy.READERS) == 11
 
 
 def test_a_name_that_was_renamed_on_import_still_works_in_the_copy(tmp_path):

@@ -38,7 +38,7 @@ pip install git+https://github.com/BlackCanyonSoftware/stocktake_BCS
 stocktake --version
 ```
 
-That is the whole install, and it gives the complete tool — all four ecosystems, the pytest plugin, SARIF and the vendor command. Verified in a clean environment on 2026-10-30 and again on 2026-10-30 from a stranger's point of view. It tracks the default branch, so it is as current as that branch is.
+That is the whole install, and it gives the complete tool — all five ecosystems, the pytest plugin, SARIF and the vendor command. Verified in a clean environment on 2026-10-30 and again on 2026-10-30 from a stranger's point of view. It tracks the default branch, so it is as current as that branch is.
 
 **To declare it as a dev dependency** of a project — which routes 1 and 2 need, because the plugin has to be importable in the project's own test environment:
 
@@ -221,7 +221,7 @@ One file at the project root, or a `[tool.stocktake]` table in `pyproject.toml`.
 ```toml
 # .stocktake.toml
 ecosystems = ["python", "npm"]   # which readers to run; default: all
-                                 # (python, npm, workflows, binaries)
+                                 # (binaries, containers, npm, python, workflows)
 exclude = ["vendor", "tests/fixtures"]
 accept_unread = ["go.mod"]       # "I know you cannot read this yet": stops the notice, stays in the JSON
 environment = "tools/env"        # where this project's Python environment is, if not ./.venv
@@ -328,7 +328,16 @@ assert failure_text(report) is None
 **Binaries** (the `binaries` ecosystem)
 - GitHub release downloads in Dockerfiles, resolving `${VERSION}` against the nearest earlier assignment
 
-It asks [PyPI](https://pypi.org) for the newest release and for withdrawn ones, [npm](https://registry.npmjs.org) and the GitHub releases API for the newest version, and [OSV](https://osv.dev) for advisories against the exact version in use.
+**Containers** (the `containers` ecosystem)
+- `FROM image:tag` in Dockerfiles, on Docker Hub, `ghcr.io`, `mcr.microsoft.com` or any other registry speaking the OCI API
+- a variant is part of what is checked: `python:3.12-slim` is compared against other `-slim` tags, never against the newest tag of `python`, which would be telling you to move to an image that is not slim
+- `python:3.12` is a **moving tag** ([ADR 0008](docs/adr/0008-a-tag-its-publisher-moves-is-a-range.md)), so only a change at the precision you wrote counts as an update
+- a tag that names no version — `debian:bookworm-slim`, `latest`, a digest — is reported with the reason and never compared ([ADR 0012](docs/adr/0012-container-base-images.md))
+- a stage name in a multi-stage build is not an image, and `scratch` is not one either
+
+It asks [PyPI](https://pypi.org) for the newest release and for withdrawn ones, [npm](https://registry.npmjs.org), the GitHub releases API and the container registries for the newest version, and [OSV](https://osv.dev) for advisories against the exact version in use.
+
+**Two of these get no advisory check**, and the report never implies otherwise: a GitHub release binary and a container base image. OSV has no key that identifies either, so claiming to have checked one would be dishonest — you get "is there a newer one" and nothing more. For a base image that also means StockTake says nothing about the packages *inside* it, which is a different question and wants a different tool.
 
 ### Pins, ranges, and which version gets checked
 
@@ -370,6 +379,7 @@ They are good, and this is not trying to replace them. It exists because of the 
 | Opens pull requests | yes, on its own schedule | never; it reports and nothing else |
 | Sees `RUN pip install name==1.2.3` in a Dockerfile | no | **yes** |
 | Sees a binary fetched from a GitHub release | no | yes (newest tag only) |
+| Sees the `FROM` base image of a Dockerfile | yes | yes (newest tag only) |
 | Checks the version actually installed in your dev environment | no | yes |
 | Checks your GitHub Actions pins | yes | yes |
 | Runs in your test suite, offline-tolerant | no | yes — one line of config |

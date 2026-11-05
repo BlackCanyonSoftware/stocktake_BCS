@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from pathlib import Path
 
@@ -34,7 +34,11 @@ INCOMPLETE = 2
 OFFLINE_ENV = "STOCKTAKE_OFFLINE"
 
 
-def _refuse_to_fetch(url: str, body: dict[str, object] | None = None) -> object:  # noqa: ARG001  (must match FetchFn)
+def _refuse_to_fetch(
+    _url: str,
+    _body: dict[str, object] | None = None,
+    _headers: Mapping[str, str] | None = None,
+) -> object:
     """The fetcher used when `STOCKTAKE_OFFLINE` is set: the cache answers, or nothing does."""
     raise OfflineError(f"{OFFLINE_ENV} is set, so nothing was requested")
 

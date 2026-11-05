@@ -44,8 +44,14 @@ def _lookup(registries: Registries, ecosystem: str, name: str) -> Answer:
 
 
 def _ask_about_every_name(deps: Sequence[Dep], registries: Registries) -> dict[tuple[str, str], Answer]:
-    """One lookup per distinct name, several at a time. Two Dockerfiles pinning the same package ask about it once."""
-    distinct = sorted({(d.ecosystem, d.name) for d in deps})
+    """One lookup per distinct name, several at a time. Two Dockerfiles pinning the same package ask about it once.
+
+    A name with no version anywhere is not asked about at all: `_judge` answers `unpinned` before it looks at a registry, so the request was
+    always wasted. Harmless while the waste was a small JSON document, and not harmless once a container registry answered `debian` with a
+    67 KB tag listing that nothing read and the cache then kept. A name pinned in one file and loose in another is still asked about, which
+    is why this tests the versions rather than the name.
+    """
+    distinct = sorted({(d.ecosystem, d.name) for d in deps if d.version is not None})
     if not distinct:
         return {}
     with ThreadPoolExecutor(max_workers=min(MAX_LOOKUPS_AT_ONCE, len(distinct))) as pool:

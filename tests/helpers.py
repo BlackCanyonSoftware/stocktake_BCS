@@ -28,6 +28,7 @@ class FakeNet:
     - `osv`:     {(name, version): [advisory id]}
     - `details`: {advisory id: the detail document OSV would return}
     - `github`:  {"owner/repo": "v1.2.3"}
+    - `docker`:  {"library/python": ["3.12", "3.13"]} - the tags a container registry lists for a repository
     """
 
     def __init__(
@@ -37,9 +38,13 @@ class FakeNet:
         details: dict[str, dict] | None = None,
         github: dict[str, str] | None = None,
         npm: dict[str, str] | None = None,
+        docker: dict[str, list[str]] | None = None,
     ) -> None:
         self.pypi = pypi or {}
         self.npm = npm or {}
+        # Enough for a fixture that names a base image to get a real answer rather than an `unknown`. A repository absent from here is one
+        # the registry does not have, which is what None means everywhere else.
+        self.docker = docker if docker is not None else {"library/python": ["3.12", "3.13", "3.13-slim"]}
         self.osv = osv or {}
         self.details = details or {}
         self.github = github or {}
@@ -47,7 +52,8 @@ class FakeNet:
         self.offline = False
         self.limited: set[str] = set()  # substrings of URLs that answer 429
 
-    def __call__(self, url: str, body: dict | None = None):
+    def __call__(self, url: str, body: dict | None = None, headers: dict | None = None):
+        # `headers` is accepted and ignored: a bearer token says who is asking, and a fake that answers everything has nobody to refuse.
         self.calls.append(url)
         if self.offline:
             raise OfflineError("no route to host")
@@ -74,6 +80,10 @@ class FakeNet:
 
         if url.startswith("https://api.osv.dev/v1/vulns/"):
             return self.details.get(url.rsplit("/", 1)[1])
+
+        if "/v2/" in url and url.endswith("/tags/list"):
+            repository = url.split("/v2/", 1)[1].removesuffix("/tags/list")
+            return {"name": repository, "tags": self.docker[repository]} if repository in self.docker else None
 
         if url.startswith("https://api.github.com/repos/"):
             repo = url.split("/repos/")[1].split("/releases")[0]

@@ -18,9 +18,9 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from stocktake._version import __version__
 
@@ -39,7 +39,19 @@ RETRY_ATTEMPTS = 2
 RETRY_DELAY_SECONDS = 0.5
 USER_AGENT = f"stocktake/{__version__} (+https://github.com/BlackCanyonSoftware/stocktake_BCS)"
 
-FetchFn = Callable[[str, dict[str, Any] | None], Any]
+
+class FetchFn(Protocol):
+    """Anything that can make one request.
+
+    `headers` exists because an OCI container registry will not answer about a *public* image without a bearer token, which is the first
+    service here needing a credential to read something anonymous (docs/adr/0012). A fake in a test may ignore it.
+    """
+
+    # Positional-only: the cache always calls a fetcher positionally, and saying so here means a stand-in is free to name its parameters
+    # whatever reads best, including the leading underscore that marks one it deliberately ignores.
+    def __call__(self, url: str, body: dict[str, Any] | None = ..., headers: Mapping[str, str] | None = ..., /) -> Any: ...
+
+
 ClockFn = Callable[[], float]
 
 
@@ -49,6 +61,15 @@ class OfflineError(RuntimeError):
 
 class RateLimited(RuntimeError):
     """The service asked us to slow down. That one answer is unknown; the run is not."""
+
+
+class Unauthorized(OfflineError):
+    """The service answered, and said it will not talk to us without a credential.
+
+    A subclass of `OfflineError` on purpose. To everything upstream this is the same fact — we did not get an answer, so the finding is
+    `unknown` and never clean — and nothing has to learn a fourth failure. It is a distinct type only because an OCI registry answers 401 as
+    the *first half* of its normal handshake for a public image, and the client needs to tell that apart from a real refusal.
+    """
 
 
 def cache_path() -> Path:
@@ -63,23 +84,33 @@ def cache_path() -> Path:
     return base / "stocktake" / "cache.json"
 
 
-def default_fetch(url: str, body: dict[str, Any] | None = None, timeout: int = TIMEOUT_SECONDS, attempts: int = RETRY_ATTEMPTS) -> Any:
+def default_fetch(
+    url: str,
+    body: dict[str, Any] | None = None,
+    headers: Mapping[str, str] | None = None,
+    timeout: int = TIMEOUT_SECONDS,
+    attempts: int = RETRY_ATTEMPTS,
+) -> Any:
     """One request, retried once if the connection itself failed.
 
     A 404 is an answer ("no such package"); 403 and 429 are rate limiting; a connection that never got that far is being offline. Only the
     last of those is worth trying again.
 
     The only thing sent is the URL, which carries a package name, and for OSV a body of names and versions. Nothing else, ever (NFR-1).
+    `headers` adds a bearer token the caller has already obtained; it carries no identity of the user's, only permission to read a public
+    image (docs/adr/0012).
     """
-    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    sending = {"User-Agent": USER_AGENT, "Accept": "application/json"}
     token = os.environ.get("GITHUB_TOKEN")
     if token and "api.github.com" in url:
-        headers["Authorization"] = f"Bearer {token}"  # raises GitHub's 60-an-hour anonymous limit; sent to GitHub alone
+        sending["Authorization"] = f"Bearer {token}"  # raises GitHub's 60-an-hour anonymous limit; sent to GitHub alone
+    if headers:
+        sending.update(headers)
     data = None
     if body is not None:
         data = json.dumps(body).encode()
-        headers["Content-Type"] = "application/json"
-    request = urllib.request.Request(url, data=data, headers=headers)  # noqa: S310 - every URL here is a literal in this package
+        sending["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, headers=sending)  # noqa: S310 - every URL here is a literal in this package
 
     for attempt in range(1, max(attempts, 1) + 1):
         try:
@@ -88,6 +119,8 @@ def default_fetch(url: str, body: dict[str, Any] | None = None, timeout: int = T
         except urllib.error.HTTPError as exc:  # a subclass of URLError, so it has to be caught first
             if exc.code == 404:
                 return None
+            if exc.code == 401:
+                raise Unauthorized(f"{url} answered 401") from exc
             if exc.code in (403, 429):
                 raise RateLimited(f"{url} answered {exc.code}") from exc
             raise OfflineError(f"{url} answered {exc.code}") from exc
@@ -131,15 +164,28 @@ class Cache:
             return url
         return url + hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]
 
-    def get(self, url: str, body: dict[str, Any] | None = None) -> Any:
-        """The cached answer if it is fresh enough, otherwise one request. Exceptions are not cached."""
+    def get(self, url: str, body: dict[str, Any] | None = None, headers: Mapping[str, str] | None = None) -> Any:
+        """The cached answer if it is fresh enough, otherwise one request. Exceptions are not cached.
+
+        `headers` is passed on but is deliberately **not** part of the key. It says who is asking, never what is being asked for: the tag
+        list of a public image is the same document whichever bearer token fetched it, and keying on the token would mean a cache that
+        missed every run, since the token is new each time.
+        """
         key = self._key(url, body)
         hit = self.entries.get(key)
         if hit and not self.refresh and self.now() - hit["t"] < self.ttl:
             return hit["data"]
-        data = self.fetch(url, body)
+        data = self.fetch(url, body, headers)
         self.entries[key] = {"t": self.now(), "data": data}
         return data
+
+    def once(self, url: str, headers: Mapping[str, str] | None = None) -> Any:
+        """One request whose answer is deliberately not kept.
+
+        For a short-lived credential. An OCI token is good for minutes; this cache keeps answers for six hours, so a cached token would be
+        an expired token for most of its life, and every run after the first would fail with a 401 that looks like a broken registry.
+        """
+        return self.fetch(url, None, headers)
 
     def flush(self) -> None:
         """Write the cache out, through a temporary file so an interrupted run cannot leave a damaged one behind.

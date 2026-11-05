@@ -30,14 +30,14 @@ def test_pypi_gives_the_newest_release_and_the_withdrawn_ones(tmp_path):
 
 def test_a_release_is_only_withdrawn_when_every_file_in_it_is(tmp_path):
     # One yanked wheel beside a good source distribution is still installable; calling that withdrawn would be a false failure.
-    def net(url, body=None):
+    def net(url, body=None, headers=None):
         return {"info": {"version": "2.0"}, "releases": {"1.0": [{"yanked": True}, {"yanked": False}], "0.9": [{"yanked": True}]}}
 
     assert PyPI(cache(tmp_path, net)).latest("x") == Versions(latest="2.0", withdrawn=frozenset({"0.9"}))
 
 
 def test_a_release_with_no_files_is_not_called_withdrawn(tmp_path):
-    def net(url, body=None):
+    def net(url, body=None, headers=None):
         return {"info": {"version": "2.0"}, "releases": {"1.0": []}}
 
     assert PyPI(cache(tmp_path, net)).latest("x").withdrawn == frozenset()
@@ -332,7 +332,7 @@ def test_retrying_can_be_switched_off_for_one_call(monkeypatch):
 def test_the_facade_routes_by_ecosystem_and_says_which_it_knows(tmp_path):
     net = FakeNet(pypi={"a": ("1.0", [])}, github={"o/r": "v3"})
     asking = registries(tmp_path, net)
-    assert set(asking.ecosystems) == {"PyPI", "npm", "GitHub"}
+    assert set(asking.ecosystems) == {"PyPI", "npm", "GitHub", "Docker"}
     assert asking.latest("PyPI", "a") == Versions(latest="1.0")
     assert asking.latest("GitHub", "o/r") == Versions(latest="3")
 

@@ -17,7 +17,7 @@ from stocktake.pytest_plugin import OFFLINE_ENV, assert_dependencies_are_safe
 from helpers import TODAY, FakeNet, advisory_detail, registries
 
 
-def project(tmp_path, name="project", dockerfile="FROM x\nRUN pip install a==1.0\n"):
+def project(tmp_path, name="project", dockerfile="FROM scratch\nRUN pip install a==1.0\n"):
     root = tmp_path / name
     root.mkdir()
     (root / "Dockerfile").write_text(dockerfile, encoding="utf-8")
@@ -82,7 +82,7 @@ def test_a_newer_release_is_a_warning_that_names_what_moved(tmp_path):
 
 def test_a_long_list_of_outdated_dependencies_is_counted_rather_than_recited(tmp_path):
     names = [f"pkg{i:02d}" for i in range(20)]
-    root = project(tmp_path, dockerfile="FROM x\n" + "".join(f"RUN pip install {n}==1.0\n" for n in names))
+    root = project(tmp_path, dockerfile="FROM scratch\n" + "".join(f"RUN pip install {n}==1.0\n" for n in names))
     report = checked(tmp_path, root, FakeNet(pypi={n: ("2.0", []) for n in names}))
     warning = update_warning(report)
     assert warning is not None

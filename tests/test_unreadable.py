@@ -177,7 +177,7 @@ def test_the_command_exits_two_even_when_it_also_found_something_unsafe(tmp_path
 
     root = tmp_path / "project"
     root.mkdir()
-    (root / "Dockerfile").write_text("FROM x\nRUN pip install a==1.0\n", encoding="utf-8")
+    (root / "Dockerfile").write_text("FROM scratch\nRUN pip install a==1.0\n", encoding="utf-8")
     (root / "package.json").write_text("{broken", encoding="utf-8")
     net = FakeNet(pypi={"a": ("1.0", [])}, osv={("a", "1.0"): ["GHSA-1"]}, details={"GHSA-1": advisory_detail("bad")})
 

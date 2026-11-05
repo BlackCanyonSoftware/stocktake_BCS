@@ -10,7 +10,7 @@ from stocktake.cli import INCOMPLETE, OK, UNSAFE, build_parser, main, run, vendo
 from helpers import TODAY, FakeNet, advisory_detail, registries
 
 
-def project(tmp_path, name="project", dockerfile="FROM x\nRUN pip install a==1.0\n"):
+def project(tmp_path, name="project", dockerfile="FROM scratch\nRUN pip install a==1.0\n"):
     root = tmp_path / name
     root.mkdir()
     (root / "Dockerfile").write_text(dockerfile, encoding="utf-8")
@@ -91,7 +91,7 @@ def test_a_root_that_is_not_a_directory_is_refused(tmp_path, capsys):
 
 def test_the_report_can_be_narrowed_from_the_command_line(tmp_path):
     net = FakeNet(pypi={"a": ("1.0", []), "b": ("2.0", [])}, osv={("a", "1.0"): ["GHSA-1"]}, details={"GHSA-1": advisory_detail("bad")})
-    root = project(tmp_path, dockerfile="FROM x\nRUN pip install a==1.0 b==1.0\n")
+    root = project(tmp_path, dockerfile="FROM scratch\nRUN pip install a==1.0 b==1.0\n")
     _code, text = check(tmp_path, root, net, ["--only", "vulnerable"])
     assert "VULNERABLE" in text and "OUTDATED" not in text
 
@@ -117,7 +117,8 @@ def test_an_empty_project_reports_nothing_and_exits_zero(tmp_path):
 def test_a_project_that_disables_an_ecosystem_makes_no_request_for_it(tmp_path):
     """The whole point of per-project ecosystems: a project that only wants its Python pins checked never asks about anything else."""
     root = project(
-        tmp_path, dockerfile='FROM x\nRUN pip install a==1.0\nRUN curl -LO "https://github.com/o/r/releases/download/v1.2.3/r.tar.gz"\n'
+        tmp_path,
+        dockerfile='FROM scratch\nRUN pip install a==1.0\nRUN curl -LO "https://github.com/o/r/releases/download/v1.2.3/r.tar.gz"\n',
     )
     net = FakeNet(pypi={"a": ("1.0", [])}, github={"o/r": "v2.0.0"})
 
@@ -207,7 +208,7 @@ def test_being_pointed_at_something_that_is_not_an_environment_stops_the_run(tmp
 
 def test_the_note_is_left_out_when_no_declared_range_went_unresolved(tmp_path):
     # A Dockerfile's unpinned install is about what the image will build, not about which environment we looked in.
-    root = project(tmp_path, dockerfile="FROM x\nRUN pip install a\n")
+    root = project(tmp_path, dockerfile="FROM scratch\nRUN pip install a\n")
     _code, text = check(tmp_path, root, FakeNet(), installed=None)
     assert "NOTE:" not in text
     assert "UNPINNED" in text
@@ -238,7 +239,7 @@ def test_the_sarif_format_is_a_sarif_log(tmp_path):
 
 def test_narrowing_applies_to_sarif_too(tmp_path):
     net = FakeNet(pypi={"a": ("1.0", []), "b": ("2.0", [])}, osv={("a", "1.0"): ["GHSA-1"]}, details={"GHSA-1": advisory_detail("bad")})
-    root = project(tmp_path, dockerfile="FROM x\nRUN pip install a==1.0 b==1.0\n")
+    root = project(tmp_path, dockerfile="FROM scratch\nRUN pip install a==1.0 b==1.0\n")
     _code, everything = check(tmp_path, root, net, ["--format", "sarif"])
     _code, unsafe_only = check(tmp_path, root, net, ["--format", "sarif", "--only", "vulnerable"])
     assert {r["ruleId"] for r in json.loads(everything)["runs"][0]["results"]} >= {"vulnerable", "outdated"}

@@ -13,6 +13,7 @@ Everything below is unreleased: StockTake has not been published anywhere yet, a
 - Reads npm dependencies from `package.json` and `package-lock.json` (both layouts), resolving declared ranges against `node_modules`, including dependencies hoisted to the top of a workspace.
 - Reads GitHub Actions pins from `.github/workflows/*.yml` and `action.yml`, taking the version from the conventional `# v4.1.1` comment when the ref is a commit SHA.
 - Reads GitHub release downloads in Dockerfiles, resolving `${VERSION}` against the nearest earlier assignment.
+- Reads the `FROM` base image of a Dockerfile, from Docker Hub, `ghcr.io`, `mcr.microsoft.com` or any other registry speaking the OCI API. A variant is part of what is checked, so `python:3.12-slim` is compared against other `-slim` tags; a tag that names no version, such as `debian:bookworm-slim`, is reported with the reason rather than compared. Like a GitHub release binary, a base image gets no advisory check. ([ADR 0012](docs/adr/0012-container-base-images.md))
 - Asks PyPI, the npm registry and the GitHub releases API for the newest version, and [OSV](https://osv.dev) for advisories against the exact version in use.
 - Fails only on a vulnerable release, a withdrawn release, or a policy entry past its date. A newer release warns. Registries that cannot be reached make the check *incomplete*, never clean.
 - Merges advisories that are the same problem reported twice, ranks them worst first, and names the single version that clears them all.
@@ -53,6 +54,8 @@ Three things found by running it against real projects rather than by design, an
 - **The one-line summary no longer claims more than it checked.** Five unpinned dependencies produced `nothing unsafe, 0 outdated (5 checked)`; they produce `nothing could be checked (0 of 5 checked, 5 unpinned)`.
 - **A withdrawn release stays withdrawn when it also has an advisory.** The status takes the more actionable of the two, which meant the headline said `0 withdrawn` about a project that had one.
 - **`stocktake vendor deps` writes `deps/stocktake_vendored.py`.** It used to write a Python module into a file called `deps`.
+- **The single-file copy lists its reader groups in the same order the package does.** It concatenates modules in dependency order, so the two disagreed about something a caller can see; the order is alphabetical now and cannot drift.
+- **No registry is asked about a name nothing pins.** The answer was discarded before being read, which went unnoticed until a container tag listing made it 67 KB of cache per unpinned image.
 - **A failure says what happened on its first line.** It began with a blank line, so pytest's one-line summary printed `FAILED stocktake_dependency_check - ` and nothing after the dash.
 - **The report header uses the local date.** A run at 19:46 on the 30th printed `2026-10-31`, because it was the UTC date.
 - **The unreadable-file message is printed once**, not to stdout and stderr both.

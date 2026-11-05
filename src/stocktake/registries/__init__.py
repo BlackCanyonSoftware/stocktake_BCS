@@ -16,14 +16,17 @@ from stocktake.registries.http import (
     Cache,
     OfflineError,
     RateLimited,
+    Unauthorized,
     cache_path,
     default_fetch,
 )
 from stocktake.registries.npm import Npm
+from stocktake.registries.oci import OCI
 from stocktake.registries.osv import OSV
 from stocktake.registries.pypi import PyPI
 
 __all__ = [
+    "OCI",
     "OSV",
     "TTL_SECONDS",
     "AdvisoryClient",
@@ -36,6 +39,7 @@ __all__ = [
     "PyPI",
     "RateLimited",
     "Registries",
+    "Unauthorized",
     "Versions",
     "cache_path",
     "default_fetch",
@@ -52,7 +56,7 @@ class Registries:
         advisory_client: AdvisoryClient | None = None,
     ) -> None:
         self.cache = cache if cache is not None else Cache()
-        chosen = clients if clients is not None else (PyPI(self.cache), Npm(self.cache), GitHub(self.cache))
+        chosen = clients if clients is not None else (PyPI(self.cache), Npm(self.cache), GitHub(self.cache), OCI(self.cache))
         self.clients: dict[str, Client] = {client.ecosystem: client for client in chosen}
         self.advisory_client = advisory_client if advisory_client is not None else OSV(self.cache)
 

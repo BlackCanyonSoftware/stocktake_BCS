@@ -162,7 +162,7 @@ def test_advisories_being_rate_limited_never_turns_a_package_into_current(tmp_pa
 
 
 def test_advisories_going_offline_makes_the_whole_run_incomplete(tmp_path):
-    def half_up(url, body=None):
+    def half_up(url, body=None, headers=None):
         if "osv.dev" in url:
             raise OfflineError("no route to host")
         return {"info": {"version": "2.0"}, "releases": {}}
@@ -223,3 +223,23 @@ def test_a_release_that_is_neither_is_not_marked(tmp_path):
     report = evaluate([pin("a", "1.0")], registries(tmp_path, net), today=TODAY)
     assert report.findings[0].withdrawn is False
     assert report.withdrawn_count == 0
+
+
+def test_a_name_nothing_pins_is_never_asked_about(tmp_path):
+    """`_judge` answers `unpinned` before it looks at a registry, so the request was always wasted.
+
+    It went unnoticed while the waste was a small JSON document. A container registry answers a tag listing for `debian` with 67 KB, which
+    was then cached, for an answer nothing read.
+    """
+    net = FakeNet(pypi={"pinned": ("2.0", [])})
+    evaluate([pin("pinned", "1.0"), pin("loose", None)], registries(tmp_path, net), today=TODAY)
+    assert net.asked_about("pinned")
+    assert not net.asked_about("loose"), "nothing pins it, so there is nothing a registry could tell us"
+
+
+def test_a_name_pinned_in_one_place_and_loose_in_another_is_still_asked_about(tmp_path):
+    """Which is why the test is on the versions rather than on the name."""
+    net = FakeNet(pypi={"both": ("2.0", [])})
+    report = evaluate([pin("both", "1.0"), pin("both", None)], registries(tmp_path, net), today=TODAY)
+    assert net.asked_about("both")
+    assert {f.status for f in report.findings} == {"outdated", "unpinned"}

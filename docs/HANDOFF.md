@@ -1,11 +1,11 @@
 # StockTake: handoff
 
 ## Current state
-**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1, M5.2 and M5.3**: the responses to the first two outside trial reports. 528 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. The next session starts Milestone 6, the one decision M5 left to the owner, or the next trial report.
+**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1, M5.2 and M5.3** (the responses to the first two outside trial reports) and **M6a**, container base images. 572 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. The next session continues Milestone 6 - the YAML question is the gate on most of what is left - or takes the one decision M5 left to the owner, or the next trial report.
 
 **It has been run against ten real projects** — well over two thousand dependencies, Python, Node and mixed — and found vulnerable dependencies in nearly every one. Three of its own bugs were found that way and only that way. Two more projects have been handed it cold and written down what happened: [Can-AI](feedback/2026-10-30-claude-code-session.md), which found three P0s, and [Pixel Galaxy Studio](feedback/2026-10-30-claude-code-windows-readme-cold-trial.md), which found none and instead found what the four untried adoption routes cost.
 
-It reads **four ecosystems**: `python` (seven manifest kinds), `npm` (`package.json`, `package-lock.json`, `node_modules`), `workflows` (GitHub Actions pins) and `binaries` (GitHub release downloads). It reports as text, JSON, SARIF or one line. It drops into another project's pytest suite in one line, writes its own test file with `stocktake init`, and writes itself as one dependency-free file with `stocktake vendor`.
+It reads **five ecosystems**: `python` (seven manifest kinds), `npm` (`package.json`, `package-lock.json`, `node_modules`), `workflows` (GitHub Actions pins), `binaries` (GitHub release downloads) and `containers` (Dockerfile `FROM` base images, on any registry speaking the OCI API). It reports as text, JSON, SARIF or one line. It drops into another project's pytest suite in one line, writes its own test file with `stocktake init`, and writes itself as one dependency-free file with `stocktake vendor`.
 
 **It checks itself through its own plugin.** `stocktake = true` is in this repository's `pyproject.toml`, so every `pytest` run here exercises the thing other projects will use. If the plugin breaks, this suite notices first.
 
@@ -16,7 +16,7 @@ Pushed through `1b01058`, and CI passes on Windows and Ubuntu across Python 3.11
 ```bash
 py -3.11 -m venv .venv
 ./.venv/Scripts/python -m pip install -e ".[dev]"   # .venv/bin/python on macOS and Linux
-./.venv/Scripts/python -m pytest                    # 528 tests, ~6s (includes the live check, via the plugin)
+./.venv/Scripts/python -m pytest                    # 572 tests, ~8s (includes the live check, via the plugin)
 ./.venv/Scripts/stocktake vendor vendored/          # after ANY change to the core, or a test fails
 ./.venv/Scripts/python -m stocktake                 # check this project itself
 ```
@@ -49,7 +49,7 @@ The owner pushed through `1b01058` on 2026-10-30, and everything that could not 
 **One thing that first run showed:** the code-scanning job installed `-e .` without the dev extra, so this project's own dev dependencies had nothing to resolve against and arrived in the security tab as four `unpinned` notes about its own tooling — correct, and useless. The job now installs `.[dev]`. Four open alerts from that first run will be superseded by the next one.
 
 ## Work in progress
-None. M0 to M5, M5.1, M5.2 and M5.3 are complete; M6 has not been started.
+None. M0 to M5, M5.1, M5.2, M5.3 and M6a are complete. The rest of M6 is open, and most of it is gated on one decision: `yarn.lock`, `pnpm-lock.yaml`, pre-commit hook pins and compose files all need YAML, which means either a vendored minimal parser or a dependency and an amendment to [ADR 0001](adr/0001-python-with-a-standard-library-only-core.md). **Ask the owner before choosing**; a census of their repositories puts the prize at 4 `.pre-commit-config.yaml` files and 1 `pnpm-lock.yaml`, which is a modest return for a dependency in a tool whose whole pitch is having none.
 
 ## Next steps
 1. **One decision the owner has to make**, recorded in [ROADMAP.md](ROADMAP.md) under M5 and in the PRD's open questions: whether to publish to PyPI. The metadata is ready and the name was free on 2026-10-30. Not a coding task.
@@ -142,6 +142,19 @@ The owner has about ten repositories available for this, and the list is the mos
 In [PRD.md](PRD.md) under "Open questions". None block M1. The one worth deciding soonest: whether to publish `stocktake` to PyPI now (the name is free as of 2026-10-29) or wait until there are two real consumers.
 
 ## Session log
+### Session 13 - 2026-11-05
+Took the next roadmap item, choosing between M6's pieces on evidence rather than on the order they were listed: a census of the owner's repositories found 9 Dockerfiles, 4 `.pre-commit-config.yaml` and 1 `pnpm-lock.yaml`, and no Go, Rust or yarn at all. Containers also needed no decision from the owner, where the YAML kinds do. The owner picked the wider of the two container options.
+
+Built the `containers` ecosystem ([ADR 0012](adr/0012-container-base-images.md)): a reader for `FROM` lines and one OCI client covering Docker Hub, `ghcr.io` and `mcr.microsoft.com`. **The gap it closes is the nastiest kind this project has found so far** - not an unread file, which the report has always named, but a silent gap *inside a file the report said it had checked*. A Dockerfile has been read since M0 for its pip pins and release downloads, and its `FROM` was passed over without a word.
+
+Two things the roadmap line did not anticipate, both now in the ADR. Real `FROM` lines span three registries, not just Docker Hub, so the client does the registry's own handshake - ask, take a token only if told one is needed - rather than keeping a table of hosts; that is why `ghcr.io` and `mcr.microsoft.com` worked without being planned for. And a tag is not a version: `python`'s listing has 4117 tags, the newest is an alpha, and the newest plain release is not slim, so comparing `3.12-slim` against "the newest tag" recommends an image that is not slim. The variant is carried as part of the name and only like compared with like.
+
+Building it turned up two pre-existing faults, both fixed here and both worth knowing about:
+- **`groups()` returned registration order, and the package and the single-file copy did not share it**, because the copy concatenates modules in computed dependency order. Nothing observable differed - no file interests two readers whose relative order differs, and the equivalence guard passed - but a copy that is supposed to *be* the package should not differ in anything a caller can see. It is sorted now and cannot drift again.
+- **`evaluate` asked registries about names that nothing pins.** `_judge` answers `unpinned` before reading the answer, so the request was always wasted. Invisible while the waste was a small JSON document; a tag listing for `debian` made it 67 KB of cache for an answer nobody read. Removing it cut the four-image test cache from 193 KB to 126 KB.
+
+528 -> 572 tests. Lint, format and strict mypy clean; `vendored/` regenerated. Verified against the real registries rather than only fakes: all four real `FROM` lines resolved correctly, and `python:3.12-slim -> 3.15.2` was confirmed by querying Docker Hub independently and applying the same grammar. Then against three of the owner's own repositories read-only (`TwitchGoblin_BCS`, `streamer_AI_BCS`, `financial-chatbot`), which found four outdated base images and one correctly-uncomparable Debian codename; `git status` in each stayed empty. Committed locally; not pushed.
+
 ### Session 12 - 2026-11-01
 Re-synced the brand assets after the kit was rebuilt as 1.49.0 and this product's typeface changed to Chivo. `brandkit check` showed both banner PNGs had drifted; `brandkit bundle stocktake docs/brand --set readme` replaced them and `check` now says the copy matches. Both cuts were opened and read correctly, and the README's `<picture>` block already matches what BRAND.md prescribes today (the pair, dark source first, `width="480"`, `align` on the paragraph), so nothing there needed changing. Three files changed: the two PNGs and the hashes in `BUNDLE.json`.
 

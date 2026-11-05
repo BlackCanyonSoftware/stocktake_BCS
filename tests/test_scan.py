@@ -24,6 +24,7 @@ def test_every_reader_is_offered_every_file_it_is_interested_in(tmp_path):
     assert {(d.ecosystem, d.name, d.version, d.source) for d in deps} == {
         ("PyPI", "httpx", "0.28.1", "pyproject.toml"),
         ("PyPI", "flask", "3.0.0", "docker/Dockerfile:2"),
+        ("Docker", "python", "3.12", "docker/Dockerfile:1"),
     }
 
 
@@ -31,7 +32,7 @@ def test_a_project_can_run_only_the_readers_it_wants(tmp_path):
     root = project(tmp_path, dockerfile=DOCKERFILE + 'RUN curl -LO "https://github.com/o/r/releases/download/v1.2.3/r.tar.gz"\n')
 
     everything = scan(root, installed=lambda name: None).deps
-    assert {d.ecosystem for d in everything} == {"PyPI", "GitHub"}
+    assert {d.ecosystem for d in everything} == {"PyPI", "GitHub", "Docker"}
 
     python_only = scan(root, installed=lambda name: None, groups=["python"]).deps
     assert {d.ecosystem for d in python_only} == {"PyPI"}
@@ -40,7 +41,7 @@ def test_a_project_can_run_only_the_readers_it_wants(tmp_path):
 def test_the_projects_own_config_is_what_decides_which_readers_run(tmp_path):
     root = project(tmp_path, dockerfile=DOCKERFILE + 'RUN curl -LO "https://github.com/o/r/releases/download/v1.2.3/r.tar.gz"\n')
 
-    assert {d.ecosystem for d in scan(root, Config(), installed=lambda name: None).deps} == {"PyPI", "GitHub"}
+    assert {d.ecosystem for d in scan(root, Config(), installed=lambda name: None).deps} == {"PyPI", "GitHub", "Docker"}
     assert {d.ecosystem for d in scan(root, Config(ecosystems=("python",)), installed=lambda name: None).deps} == {"PyPI"}
     assert scan(root, Config(ecosystems=()), installed=lambda name: None).deps == [], "enabling nothing reads nothing"
 

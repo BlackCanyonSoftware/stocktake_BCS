@@ -176,12 +176,26 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 - **A misspelt policy kind is refused.** `[[policy.ignore_packages]]` was read as no policy at all — the `excludes` bug, in the file where a silent nothing is worst.
 - A guard test renders a report holding one row of every status and insists the text is plain ASCII. An em-dash in the new section heading came out as `?` on a Windows console, which is exactly where this output is read; the summary line had had that test since it was written and the text report had only the convention.
 
+### M6a — Container base images · size M · `done` (2026-11-05)
+**Goal.** Close the gap where a Dockerfile was read and its `FROM` line was not. Picked first because a census of the author's repositories found nine Dockerfiles against essentially no Go, Rust or yarn, and because a base image is the one pin here that was invisible *inside a file the report said it had checked*.
+
+**Scope.** [ADR 0012](adr/0012-container-base-images.md).
+- `readers/containers.py`: `FROM` lines, with build-argument substitution, multi-stage builds (a stage name is not an image), `scratch`, digests, and tags that name no version.
+- `registries/oci.py`: one client for Docker Hub, `ghcr.io`, `mcr.microsoft.com` and anything else speaking the OCI distribution API, through the registry's own handshake rather than a table of hosts — ask, and get a token only if told one is needed. Verified against all three.
+- `versions.container_tag`: the shared grammar of a tag, in `versions.py` because a reader and a client both need it and neither may import the other.
+- A guard test counting `FROM` lines with an independent regular expression.
+- **No advisory check**, as with GitHub release downloads: OSV has no ecosystem for a container image, and what is inside the image is a different question again.
+
+**Found while building it, both fixed here:**
+- `groups()` returned registration order, which the single-file copy did not share, because it concatenates modules in computed dependency order. Package and copy disagreed about something a caller can see; it is sorted now and cannot drift again.
+- `evaluate` asked registries about names that nothing pins, whose answers `_judge` discards before reading. Invisible while the waste was a small JSON document; a tag listing for `debian` made it 67 KB of cache for an answer nobody read.
+
 ## Now
 
 ### M6 — More ecosystems · size L · `planned`
 Each is one reader, one registry client, one guard test. The first two are carried over from M3 and are the ones a real project is most likely to want next:
 
-- **Containers:** `FROM image:tag` and `@sha256:` digests. The work that is not in the reader: Docker Hub issues an anonymous bearer token before it will answer a manifest query, so this is the first registry client needing an authentication step even for public data, and the first that cannot simply be a GET of a JSON document. A moving tag like `python:3.12` is handled by [ADR 0008](adr/0008-a-tag-its-publisher-moves-is-a-range.md), which already exists for this.
+- ~~**Containers**~~ **done** (2026-11-05), and wider than planned: not only Docker Hub but any registry that speaks OCI, because the real `FROM` lines in the author's own repositories span three. [ADR 0012](adr/0012-container-base-images.md) has the reasoning, including the part the roadmap line did not anticipate — a tag is not a version, and comparing `3.12-slim` against the newest tag of `python` recommends an image that is not slim.
 - **`yarn.lock` and `pnpm-lock.yaml`:** both need YAML. The options are a vendored minimal parser for the subset these files use, or accepting a dependency and amending [ADR 0001](adr/0001-python-with-a-standard-library-only-core.md). Regex-scanning them is **not** an option: it is the "misses things silently" failure the guard tests exist to catch, and a guard written with a second regex would not be independent of the first.
 - Go (`go.mod`, proxy.golang.org, OSV `Go`), Rust (`Cargo.toml`/`Cargo.lock`, crates.io, OSV `crates.io`), pre-commit hook pins, apt packages named in Dockerfiles, conda `environment.yml`.
 
@@ -197,6 +211,12 @@ Every `TODO` in the code gets a line here. There are none.
 - **Lock-file entries carry no line number**, only the file, because the TOML and JSON parsers do not report one. Findable by searching the text for the name, which is fragile; not worth it yet.
 - **`dist-info` directory names are trusted** for installed versions rather than the metadata inside them (ADR 0006). The documented layout, and what makes the lookup free.
 - **A project whose environment is in none of the usual places needs `--environment` passing once.** The brand-kit repository is this case. A config entry makes it permanent, but it has to be discovered first; the report's note is what makes that discoverable.
+
+From M6a (containers).
+- **A tag listing is large and is cached whole.** `python` is 89 KB and `debian` 67 KB, against about 2 KB for a small `ghcr.io` image. This is the existing cache-size item with a sharper edge, and the fix is the same for every client: keep what is read, not what was returned.
+- **Every `FROM` is a dependency, including a repeat.** A multi-stage build that uses one base image twice is two rows at two lines. Correct, and noisier than it needs to be.
+- **`docker-compose.yml` and `compose.yaml` name images and are not read.** They stay on the unread list, which is the honest place for them until the YAML question below is settled.
+- **A suffixed moving tag is answered at full precision.** `python:3.12-slim` is told about `3.15.2`, where the tag matching how it was written is `3.15`. Both exist and both are correct to paste; the more precise one is simply more precise than what was asked.
 
 From the Windows README-first trial (M5.2).
 - ~~**No way to accept a vulnerable package wholesale, with a reason and a date.**~~ **Done** (2026-10-30), after the owner decided it: `[[policy.ignore_package]]` with a `package`, an optional `version`, a reason and an `until`. [ADR 0011](adr/0011-accepting-a-vulnerable-package.md) records the reasoning, including the counter-argument it was held on — that per-advisory friction is what stops a policy file becoming a blanket. What settled it is that the friction was protecting the wrong thing: the trial's own conclusion was to use the SARIF route and *not gate on the check at all*, and a gate that is off reports nothing.

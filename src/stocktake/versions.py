@@ -8,6 +8,9 @@ Three ecosystems, three sets of rules, and they genuinely differ enough that one
   shorter prerelease ranks below a longer one with the same prefix. Judged by PEP 440's rules, some of those come out backwards.
 - **GitHub release tags** are whatever the project felt like: `v2.16.0`, `262`, `2026.1`. The leading dotted integers are all that can be
   relied on, which is why that is the fallback rather than the rule.
+- **Container tags** are not versions at all. `python:3.12-slim` carries a variant, `debian:bookworm-slim` carries no version, and the
+  newest tag of an image is routinely of a different variant than the one in use. `container_tag` below is the grammar; what to do with it
+  is [ADR 0012](adr/0012-container-base-images.md).
 """
 
 from __future__ import annotations
@@ -19,6 +22,23 @@ from typing import Any
 SEMVER_ECOSYSTEMS = frozenset({"npm"})
 
 _LEADING_NUMBERS = re.compile(r"\s*v?(\d+(?:\.\d+)*)")
+
+# A container tag that is a version, optionally with a variant after it: `3.12`, `v1.47.0-jammy`, `20.1-alpine3.19`.
+_CONTAINER_TAG = re.compile(r"^v?(?P<version>\d+(?:\.\d+)*)(?:-(?P<variant>.+))?$")
+
+
+def container_tag(tag: str) -> tuple[str, str] | None:
+    """A container tag split into (version, variant), or None when it names no version at all.
+
+    Lives here rather than in the reader or the registry client because both need it and neither may import the other (docs/adr/0003): the
+    reader reads a tag out of a `FROM` line, and the client has to recognise the same shape in a registry's tag listing to find what to
+    compare against.
+
+    `bookworm-slim` is None. It is a Debian release name with no ordering to put it in, and a codename compared as though it were a version
+    is how a tool invents an upgrade nobody can make.
+    """
+    match = _CONTAINER_TAG.match(tag.strip())
+    return (match.group("version"), match.group("variant") or "") if match else None
 
 
 def release_tuple(text: str) -> tuple[int, ...]:

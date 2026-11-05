@@ -305,6 +305,9 @@ Three ecosystems, three sets of rules, and they genuinely differ enough that one
   shorter prerelease ranks below a longer one with the same prefix. Judged by PEP 440's rules, some of those come out backwards.
 - **GitHub release tags** are whatever the project felt like: `v2.16.0`, `262`, `2026.1`. The leading dotted integers are all that can be
   relied on, which is why that is the fallback rather than the rule.
+- **Container tags** are not versions at all. `python:3.12-slim` carries a variant, `debian:bookworm-slim` carries no version, and the
+  newest tag of an image is routinely of a different variant than the one in use. `container_tag` below is the grammar; what to do with it
+  is [ADR 0012](adr/0012-container-base-images.md).
 """
 
 
@@ -313,6 +316,23 @@ Three ecosystems, three sets of rules, and they genuinely differ enough that one
 SEMVER_ECOSYSTEMS = frozenset({"npm"})
 
 _LEADING_NUMBERS = re.compile(r"\s*v?(\d+(?:\.\d+)*)")
+
+# A container tag that is a version, optionally with a variant after it: `3.12`, `v1.47.0-jammy`, `20.1-alpine3.19`.
+_CONTAINER_TAG = re.compile(r"^v?(?P<version>\d+(?:\.\d+)*)(?:-(?P<variant>.+))?$")
+
+
+def container_tag(tag: str) -> tuple[str, str] | None:
+    """A container tag split into (version, variant), or None when it names no version at all.
+
+    Lives here rather than in the reader or the registry client because both need it and neither may import the other (docs/adr/0003): the
+    reader reads a tag out of a `FROM` line, and the client has to recognise the same shape in a registry's tag listing to find what to
+    compare against.
+
+    `bookworm-slim` is None. It is a Debian release name with no ordering to put it in, and a codename compared as though it were a version
+    is how a tool invents an upgrade nobody can make.
+    """
+    match = _CONTAINER_TAG.match(tag.strip())
+    return (match.group("version"), match.group("variant") or "") if match else None
 
 
 def release_tuple(text: str) -> tuple[int, ...]:
@@ -717,9 +737,15 @@ def reader(group: str, interested: Callable[[Path], bool], description: str = ""
 
 
 def groups() -> tuple[str, ...]:
-    """Every group a project could enable, in registration order."""
-    seen = dict.fromkeys(r.group for r in READERS)
-    return tuple(seen)
+    """Every group a project could enable, in alphabetical order.
+
+    Sorted rather than left in registration order, which is not the same thing in the package and in the single-file copy: the copy
+    concatenates modules in computed dependency order, so a reader whose module imports another registers later there than here. Nothing
+    about the behaviour depended on it -- no file interests two readers whose relative order differs, and the copy reaches the same verdict
+    -- but a copy that is supposed to *be* the package should not differ in anything a caller can see, and this is what a caller sees
+    (docs/adr/0005).
+    """
+    return tuple(sorted({r.group for r in READERS}))
 
 
 def logical_lines(text: str) -> list[tuple[int, str]]:
@@ -822,7 +848,19 @@ RETRY_ATTEMPTS = 2
 RETRY_DELAY_SECONDS = 0.5
 USER_AGENT = f"stocktake/{__version__} (+https://github.com/BlackCanyonSoftware/stocktake_BCS)"
 
-FetchFn = Callable[[str, dict[str, Any] | None], Any]
+
+class FetchFn(Protocol):
+    """Anything that can make one request.
+
+    `headers` exists because an OCI container registry will not answer about a *public* image without a bearer token, which is the first
+    service here needing a credential to read something anonymous (docs/adr/0012). A fake in a test may ignore it.
+    """
+
+    # Positional-only: the cache always calls a fetcher positionally, and saying so here means a stand-in is free to name its parameters
+    # whatever reads best, including the leading underscore that marks one it deliberately ignores.
+    def __call__(self, url: str, body: dict[str, Any] | None = ..., headers: Mapping[str, str] | None = ..., /) -> Any: ...
+
+
 ClockFn = Callable[[], float]
 
 
@@ -832,6 +870,15 @@ class OfflineError(RuntimeError):
 
 class RateLimited(RuntimeError):
     """The service asked us to slow down. That one answer is unknown; the run is not."""
+
+
+class Unauthorized(OfflineError):
+    """The service answered, and said it will not talk to us without a credential.
+
+    A subclass of `OfflineError` on purpose. To everything upstream this is the same fact — we did not get an answer, so the finding is
+    `unknown` and never clean — and nothing has to learn a fourth failure. It is a distinct type only because an OCI registry answers 401 as
+    the *first half* of its normal handshake for a public image, and the client needs to tell that apart from a real refusal.
+    """
 
 
 def cache_path() -> Path:
@@ -846,23 +893,33 @@ def cache_path() -> Path:
     return base / "stocktake" / "cache.json"
 
 
-def default_fetch(url: str, body: dict[str, Any] | None = None, timeout: int = TIMEOUT_SECONDS, attempts: int = RETRY_ATTEMPTS) -> Any:
+def default_fetch(
+    url: str,
+    body: dict[str, Any] | None = None,
+    headers: Mapping[str, str] | None = None,
+    timeout: int = TIMEOUT_SECONDS,
+    attempts: int = RETRY_ATTEMPTS,
+) -> Any:
     """One request, retried once if the connection itself failed.
 
     A 404 is an answer ("no such package"); 403 and 429 are rate limiting; a connection that never got that far is being offline. Only the
     last of those is worth trying again.
 
     The only thing sent is the URL, which carries a package name, and for OSV a body of names and versions. Nothing else, ever (NFR-1).
+    `headers` adds a bearer token the caller has already obtained; it carries no identity of the user's, only permission to read a public
+    image (docs/adr/0012).
     """
-    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    sending = {"User-Agent": USER_AGENT, "Accept": "application/json"}
     token = os.environ.get("GITHUB_TOKEN")
     if token and "api.github.com" in url:
-        headers["Authorization"] = f"Bearer {token}"  # raises GitHub's 60-an-hour anonymous limit; sent to GitHub alone
+        sending["Authorization"] = f"Bearer {token}"  # raises GitHub's 60-an-hour anonymous limit; sent to GitHub alone
+    if headers:
+        sending.update(headers)
     data = None
     if body is not None:
         data = json.dumps(body).encode()
-        headers["Content-Type"] = "application/json"
-    request = urllib.request.Request(url, data=data, headers=headers)  # noqa: S310 - every URL here is a literal in this package
+        sending["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, headers=sending)  # noqa: S310 - every URL here is a literal in this package
 
     for attempt in range(1, max(attempts, 1) + 1):
         try:
@@ -871,6 +928,8 @@ def default_fetch(url: str, body: dict[str, Any] | None = None, timeout: int = T
         except urllib.error.HTTPError as exc:  # a subclass of URLError, so it has to be caught first
             if exc.code == 404:
                 return None
+            if exc.code == 401:
+                raise Unauthorized(f"{url} answered 401") from exc
             if exc.code in (403, 429):
                 raise RateLimited(f"{url} answered {exc.code}") from exc
             raise OfflineError(f"{url} answered {exc.code}") from exc
@@ -914,15 +973,28 @@ class Cache:
             return url
         return url + hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]
 
-    def get(self, url: str, body: dict[str, Any] | None = None) -> Any:
-        """The cached answer if it is fresh enough, otherwise one request. Exceptions are not cached."""
+    def get(self, url: str, body: dict[str, Any] | None = None, headers: Mapping[str, str] | None = None) -> Any:
+        """The cached answer if it is fresh enough, otherwise one request. Exceptions are not cached.
+
+        `headers` is passed on but is deliberately **not** part of the key. It says who is asking, never what is being asked for: the tag
+        list of a public image is the same document whichever bearer token fetched it, and keying on the token would mean a cache that
+        missed every run, since the token is new each time.
+        """
         key = self._key(url, body)
         hit = self.entries.get(key)
         if hit and not self.refresh and self.now() - hit["t"] < self.ttl:
             return hit["data"]
-        data = self.fetch(url, body)
+        data = self.fetch(url, body, headers)
         self.entries[key] = {"t": self.now(), "data": data}
         return data
+
+    def once(self, url: str, headers: Mapping[str, str] | None = None) -> Any:
+        """One request whose answer is deliberately not kept.
+
+        For a short-lived credential. An OCI token is good for minutes; this cache keeps answers for six hours, so a cached token would be
+        an expired token for most of its life, and every run after the first would fail with a 401 that looks like a broken registry.
+        """
+        return self.fetch(url, None, headers)
 
     def flush(self) -> None:
         """Write the cache out, through a temporary file so an interrupted run cannot leave a damaged one behind.
@@ -1868,6 +1940,119 @@ class Npm:
         return Versions(latest=str(data["version"]))
 
 # ======================================================================================================================
+# stocktake.registries.oci
+# ======================================================================================================================
+
+"""Container registries: the newest tag of a base image, from Docker Hub, GitHub's registry, Microsoft's, or any other that speaks OCI.
+
+The first client here that needs a credential to read something entirely public. Docker Hub and `ghcr.io` both answer a plain tag listing
+with `401` and a `WWW-Authenticate` header naming a token service that will hand anyone a token for a public image; `mcr.microsoft.com`
+answers without one. So the flow is: ask, and if the answer is "not without a token", get one and ask again. That is the registry's own
+handshake rather than a special case per host, which is what lets one client cover registries nobody here has tried
+([ADR 0012](adr/0012-container-base-images.md)).
+
+**These get no advisory check**, exactly as GitHub release downloads do not: OSV has no ecosystem for a container image, so the report says
+only whether a newer tag exists and never claims the image is free of known problems. What is inside the image — its distro packages — is a
+different question that this does not answer either.
+
+The other half of the problem is that a container tag is not a version. `python:3.12-slim` names a *variant* as well as a version, and the
+newest tag of that image is some `3.14-rc` of a different variant; recommending it would be telling somebody on `-slim` to move to an image
+that is not slim. So a variant is carried as part of the name and only tags of the same variant are ever compared.
+"""
+
+
+
+
+# Where a bare `python` lives. Docker Hub is the only registry that is implied by a name with no host in it.
+DOCKER_HUB = "registry-1.docker.io"
+DOCKER_HUB_NAMES = frozenset({"docker.io", "index.docker.io", "registry.hub.docker.com", DOCKER_HUB})
+
+# An image whose repository has no slash is an official one, and officials live under `library/`: `python` is really `library/python`.
+OFFICIAL_NAMESPACE = "library"
+
+TAGS_URL = "https://{registry}/v2/{repository}/tags/list"
+
+# The conventional token endpoint. Both registries that need one put it here and name themselves as the service; a registry that does not
+# need one never gets asked. A host doing something else entirely answers 401 twice and the image is reported `unknown` with the reason,
+# which is the honest outcome for a registry this does not know how to talk to.
+TOKEN_URL = "https://{host}/token?service={service}&scope=repository:{repository}:pull"  # noqa: S105  (a URL, not a secret)
+TOKEN_HOSTS = {DOCKER_HUB: ("auth.docker.io", "registry.docker.io")}
+
+
+def split_variant(name: str) -> tuple[str, str]:
+    """A client name back into (image reference, variant). The variant is empty when there is none.
+
+    The reader writes `python:slim` for the slim variant of the python image, so that two Dockerfiles using different variants of one image
+    are two different things to ask about. The separator is the one Docker itself uses, and it is read the same way a tag is: after the last
+    `/`, so a registry's port (`localhost:5000/thing`) is never mistaken for it.
+    """
+    head, separator, tail = name.rpartition(":")
+    return (head, tail) if separator and "/" not in tail else (name, "")
+
+
+def split_reference(reference: str) -> tuple[str, str]:
+    """An image reference into (registry host, repository path).
+
+    The first segment is a host when it looks like one — it has a dot or a port, or it is `localhost`. Everything else is a repository on
+    Docker Hub, which is the rule Docker itself uses and the reason `ghcr.io/owner/name` and `owner/name` mean different places.
+    """
+    head, _, tail = reference.partition("/")
+    if tail and ("." in head or ":" in head or head == "localhost"):
+        return head, tail
+    return DOCKER_HUB, reference if "/" in reference else f"{OFFICIAL_NAMESPACE}/{reference}"
+
+
+class OCI:
+    ecosystem = "Docker"
+
+    def __init__(self, cache: Cache) -> None:
+        self.cache = cache
+
+    def _tags(self, registry: str, repository: str) -> list[str] | None:
+        """Every tag the registry lists for the repository, getting a token first only if told to."""
+        url = TAGS_URL.format(registry=registry, repository=quote(repository, safe="/"))
+        try:
+            data = self.cache.get(url)
+        except Unauthorized:
+            token = self._token(registry, repository)
+            data = self.cache.get(url, headers={"Authorization": f"Bearer {token}"})
+        if not data:
+            return None
+        tags = data.get("tags")
+        # A repository that exists with no tags at all answers `{"tags": null}`, which is not the same as no such repository.
+        return [str(tag) for tag in tags] if isinstance(tags, list) else []
+
+    def _token(self, registry: str, repository: str) -> str:
+        host, service = TOKEN_HOSTS.get(registry, (registry, registry))
+        url = TOKEN_URL.format(host=host, service=service, repository=quote(repository, safe="/"))
+        data = self.cache.once(url)  # never cached: it is good for minutes and this cache keeps answers for hours
+        token = (data or {}).get("token") or (data or {}).get("access_token")
+        if not token:
+            raise Unauthorized(f"{registry} would not issue a token for {repository}")
+        return str(token)
+
+    def latest(self, name: str) -> Versions | None:
+        """The newest tag of this image **of the same variant**, or None when the registry has no such repository.
+
+        Only tags carrying a version are considered, and only those whose variant matches the one asked about, so `python:slim` is answered
+        with the newest `N-slim` and never with a plain `N` or an `N-alpine`.
+        """
+        reference, variant = split_variant(name)
+        registry, repository = split_reference(reference)
+        tags = self._tags(registry, repository)
+        if tags is None:
+            return None
+
+        candidates = []
+        for tag in tags:
+            parts = container_tag(tag)
+            if parts is not None and parts[1] == variant:
+                candidates.append(parts[0])
+        if not candidates:
+            return None
+        return Versions(latest=max(candidates, key=release_tuple))
+
+# ======================================================================================================================
 # stocktake.registries.osv
 # ======================================================================================================================
 
@@ -2412,6 +2597,161 @@ def render_text(report: Report, only: str = "all", all_advisories: bool = False,
     return "\n".join(lines)
 
 # ======================================================================================================================
+# stocktake.readers.containers
+# ======================================================================================================================
+
+"""Container base images: the `FROM` line of a Dockerfile.
+
+The pins that were invisible. A Dockerfile has been read since the first milestone — for its `pip install` lines and the binaries it
+downloads — and its `FROM` was passed over without a word, so a project running on a base image three releases behind was told nothing, and
+nothing in the report said a line had been skipped. That is not an unread *file*, which the report has always named; it is a silent gap
+inside a file that is read, which is worse, because there is no gap to see.
+
+Three things make this harder than matching `FROM`:
+
+- **A stage is not an image.** `FROM builder` in a multi-stage build names an earlier `FROM ... AS builder`, and asking a registry about a
+  package called `builder` would produce a confident `unknown` about something that was never a dependency.
+- **A tag is not a version.** `python:3.12-slim` names a variant as well; `debian:bookworm-slim` names a Debian release and no version at
+  all; `latest` names nothing. Only the first can be compared, and only against other `-slim` tags (docs/adr/0012).
+- **The version is often a build argument.** `ARG PYTHON=3.12` then `FROM python:${PYTHON}-slim`, which is the same substitution problem the
+  release-download reader already solves in this folder.
+"""
+
+
+
+
+# `FROM [--platform=...] image[:tag][@digest] [AS stage]`
+FROM_LINE = re.compile(
+    r"^\s*FROM\s+(?:--\S+\s+)*(?P<image>\S+)(?:\s+(?i:AS)\s+(?P<stage>\S+))?\s*$",
+    re.IGNORECASE,
+)
+ARG_LINE = re.compile(r"^\s*(?:ARG|ENV)\s+(?P<name>\w+)\s*=\s*(?P<value>\S+)", re.IGNORECASE)
+VARIABLE = re.compile(r"\$\{?(\w+)(?::-([^}]*))?\}?")
+
+# `FROM scratch` is the empty image: there is no registry entry for it and never will be.
+NOT_AN_IMAGE = frozenset({"scratch"})
+
+NO_TAG_NOTE = "no tag is pinned, so the image is whatever `latest` points at when it is built"
+DIGEST_NOTE = "pinned to a digest, which fixes the image exactly and names no version to compare"
+UNVERSIONED_NOTE = "the tag `{tag}` names a release channel rather than a version, so there is nothing to compare it against"
+UNRESOLVED_NOTE = "the tag is a build argument this file does not give a default for, so there is no version to compare"
+
+
+def substitute(text: str, values: dict[str, str]) -> str:
+    """`${PYTHON_VERSION}` replaced by what an earlier ARG or ENV set it to, falling back to a `:-default` where the line gives one."""
+
+    def replace(match: re.Match[str]) -> str:
+        return values.get(match.group(1), match.group(2) if match.group(2) is not None else match.group(0))
+
+    return VARIABLE.sub(replace, text)
+
+
+def split_image(image: str) -> tuple[str, str, str]:
+    """An image reference into (repository, tag, digest). Tag and digest are empty when absent."""
+    rest, _, digest = image.partition("@")
+    head, separator, tail = rest.rpartition(":")
+    # A `:` before a `/` is a registry's port, not a tag: `localhost:5000/thing` has no tag.
+    return (head, tail, digest) if separator and "/" not in tail else (rest, "", digest)
+
+
+def _named(image: str, variant: str) -> str:
+    """What this dependency is called: the image, plus its variant when it has one, so two variants are two things to ask about."""
+    return f"{image}:{variant}" if variant else image
+
+
+def base_images(text: str) -> Iterator[tuple[int, str, str, str]]:
+    """Every `FROM` that names a real image, as (line, repository, tag, digest), with build arguments already substituted.
+
+    Stage names are collected as they are declared so that a later `FROM` referring to one is skipped rather than asked about.
+    """
+    values: dict[str, str] = {}
+    stages: set[str] = set()
+    for number, line in logical_lines(text):
+        argument = ARG_LINE.match(line)
+        if argument:
+            values[argument.group("name")] = argument.group("value").strip("\"'")
+            continue
+
+        match = FROM_LINE.match(line)
+        if not match:
+            continue
+        if match.group("stage"):
+            stages.add(match.group("stage").lower())
+
+        image, tag, digest = split_image(substitute(match.group("image"), values).strip("\"'"))
+        if image.lower() in stages or image.lower() in NOT_AN_IMAGE:
+            continue
+        yield number, image, tag, digest
+
+
+@reader("containers", is_dockerfile)
+def read_base_images(path: Path, text: str, context: Context) -> Iterable[Dep]:
+    """Base images a Dockerfile builds on."""
+    for number, image, tag, digest in base_images(text):
+        source = context.source(path, number)
+        if not tag:
+            note = DIGEST_NOTE if digest else NO_TAG_NOTE
+            yield Dep("Docker", image, None, source, digest or "latest", "image", note)
+            continue
+
+        parts = container_tag(tag)
+        if parts is None:
+            # A codename, `latest`, or a variable nothing defined. Named with the tag, because `debian (none)` does not say which line to go
+            # and look at, and two Dockerfiles on different channels of one image are two different things to report.
+            note = UNRESOLVED_NOTE if "$" in tag else UNVERSIONED_NOTE.format(tag=tag)
+            yield Dep("Docker", _named(image, tag), None, source, tag, "image", note)
+            continue
+
+        version, variant = parts
+        # `moving=True`: `python:3.12` already points at the newest 3.12.x, so only a change at the precision written down is an update
+        # (docs/adr/0008). A digest beside the tag fixes the image exactly, so that one is not moving.
+        yield Dep("Docker", _named(image, variant), version, source, tag, "image", "", moving=not digest)
+
+# ======================================================================================================================
+# stocktake.registries
+# ======================================================================================================================
+
+"""Every registry client, wired to one shared cache.
+
+This is the wiring, and the only place that knows which concrete clients exist. `evaluate()` is handed one `Registries` and never builds one,
+which is precisely why the whole test suite runs with no network at all (docs/ARCHITECTURE.md).
+"""
+
+
+
+
+
+
+class Registries:
+    """Every registry client behind one object, sharing one cache."""
+
+    def __init__(
+        self,
+        cache: Cache | None = None,
+        clients: Sequence[Client] | None = None,
+        advisory_client: AdvisoryClient | None = None,
+    ) -> None:
+        self.cache = cache if cache is not None else Cache()
+        chosen = clients if clients is not None else (PyPI(self.cache), Npm(self.cache), GitHub(self.cache), OCI(self.cache))
+        self.clients: dict[str, Client] = {client.ecosystem: client for client in chosen}
+        self.advisory_client = advisory_client if advisory_client is not None else OSV(self.cache)
+
+    @property
+    def ecosystems(self) -> tuple[str, ...]:
+        return tuple(self.clients)
+
+    def latest(self, ecosystem: str, name: str) -> Versions | None:
+        """The newest version of a name, or None when the registry does not have it. Raises rather than guessing when it cannot be asked."""
+        client = self.clients.get(ecosystem)
+        return client.latest(name) if client is not None else None
+
+    def advisories(self, wanted: Sequence[Coordinate]) -> Mapping[Coordinate, tuple[Advisory, ...]]:
+        return self.advisory_client.advisories(wanted)
+
+    def flush(self) -> None:
+        self.cache.flush()
+
+# ======================================================================================================================
 # stocktake.config
 # ======================================================================================================================
 
@@ -2613,50 +2953,6 @@ def load_config(root: Path, path: Path | None = None) -> Config:
     return Config()
 
 # ======================================================================================================================
-# stocktake.registries
-# ======================================================================================================================
-
-"""Every registry client, wired to one shared cache.
-
-This is the wiring, and the only place that knows which concrete clients exist. `evaluate()` is handed one `Registries` and never builds one,
-which is precisely why the whole test suite runs with no network at all (docs/ARCHITECTURE.md).
-"""
-
-
-
-
-
-
-class Registries:
-    """Every registry client behind one object, sharing one cache."""
-
-    def __init__(
-        self,
-        cache: Cache | None = None,
-        clients: Sequence[Client] | None = None,
-        advisory_client: AdvisoryClient | None = None,
-    ) -> None:
-        self.cache = cache if cache is not None else Cache()
-        chosen = clients if clients is not None else (PyPI(self.cache), Npm(self.cache), GitHub(self.cache))
-        self.clients: dict[str, Client] = {client.ecosystem: client for client in chosen}
-        self.advisory_client = advisory_client if advisory_client is not None else OSV(self.cache)
-
-    @property
-    def ecosystems(self) -> tuple[str, ...]:
-        return tuple(self.clients)
-
-    def latest(self, ecosystem: str, name: str) -> Versions | None:
-        """The newest version of a name, or None when the registry does not have it. Raises rather than guessing when it cannot be asked."""
-        client = self.clients.get(ecosystem)
-        return client.latest(name) if client is not None else None
-
-    def advisories(self, wanted: Sequence[Coordinate]) -> Mapping[Coordinate, tuple[Advisory, ...]]:
-        return self.advisory_client.advisories(wanted)
-
-    def flush(self) -> None:
-        self.cache.flush()
-
-# ======================================================================================================================
 # stocktake.evaluate
 # ======================================================================================================================
 
@@ -2698,8 +2994,14 @@ def _lookup(registries: Registries, ecosystem: str, name: str) -> Answer:
 
 
 def _ask_about_every_name(deps: Sequence[Dep], registries: Registries) -> dict[tuple[str, str], Answer]:
-    """One lookup per distinct name, several at a time. Two Dockerfiles pinning the same package ask about it once."""
-    distinct = sorted({(d.ecosystem, d.name) for d in deps})
+    """One lookup per distinct name, several at a time. Two Dockerfiles pinning the same package ask about it once.
+
+    A name with no version anywhere is not asked about at all: `_judge` answers `unpinned` before it looks at a registry, so the request was
+    always wasted. Harmless while the waste was a small JSON document, and not harmless once a container registry answered `debian` with a
+    67 KB tag listing that nothing read and the cache then kept. A name pinned in one file and loose in another is still asked about, which
+    is why this tests the versions rather than the name.
+    """
+    distinct = sorted({(d.ecosystem, d.name) for d in deps if d.version is not None})
     if not distinct:
         return {}
     with ThreadPoolExecutor(max_workers=min(MAX_LOOKUPS_AT_ONCE, len(distinct))) as pool:

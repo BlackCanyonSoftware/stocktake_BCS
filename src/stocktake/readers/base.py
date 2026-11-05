@@ -121,9 +121,15 @@ def reader(group: str, interested: Callable[[Path], bool], description: str = ""
 
 
 def groups() -> tuple[str, ...]:
-    """Every group a project could enable, in registration order."""
-    seen = dict.fromkeys(r.group for r in READERS)
-    return tuple(seen)
+    """Every group a project could enable, in alphabetical order.
+
+    Sorted rather than left in registration order, which is not the same thing in the package and in the single-file copy: the copy
+    concatenates modules in computed dependency order, so a reader whose module imports another registers later there than here. Nothing
+    about the behaviour depended on it -- no file interests two readers whose relative order differs, and the copy reaches the same verdict
+    -- but a copy that is supposed to *be* the package should not differ in anything a caller can see, and this is what a caller sees
+    (docs/adr/0005).
+    """
+    return tuple(sorted({r.group for r in READERS}))
 
 
 def logical_lines(text: str) -> list[tuple[int, str]]:

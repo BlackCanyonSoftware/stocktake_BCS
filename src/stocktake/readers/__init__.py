@@ -4,6 +4,7 @@ A guard test asserts that every module in this package is imported here, so a re
 """
 
 from stocktake.readers import (  # noqa: F401  (imported for the registration side effect)
+    containers,
     dockerfile,
     npm,
     python_locks,
