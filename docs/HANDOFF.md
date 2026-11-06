@@ -1,11 +1,11 @@
 # StockTake: handoff
 
 ## Current state
-**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1, M5.2 and M5.3** (the responses to the first two outside trial reports) and **M6a**, container base images. 572 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. The next session continues Milestone 6 - the YAML question is the gate on most of what is left - or takes the one decision M5 left to the owner, or the next trial report.
+**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1, M5.2 and M5.3** (the responses to the first two outside trial reports) and **M6a and M6b**, container base images and pre-commit hook pins. 610 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. The next session continues Milestone 6 - `pnpm-lock.yaml`, yarn, compose files, Go, Rust - or takes the one decision M5 left to the owner, or the next trial report. **The YAML question is settled** ([ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md)): a strict subset that refuses what it cannot read, and the parser is written and in use.
 
 **It has been run against ten real projects** — well over two thousand dependencies, Python, Node and mixed — and found vulnerable dependencies in nearly every one. Three of its own bugs were found that way and only that way. Two more projects have been handed it cold and written down what happened: [Can-AI](feedback/2026-10-30-claude-code-session.md), which found three P0s, and [Pixel Galaxy Studio](feedback/2026-10-30-claude-code-windows-readme-cold-trial.md), which found none and instead found what the four untried adoption routes cost.
 
-It reads **five ecosystems**: `python` (seven manifest kinds), `npm` (`package.json`, `package-lock.json`, `node_modules`), `workflows` (GitHub Actions pins), `binaries` (GitHub release downloads) and `containers` (Dockerfile `FROM` base images, on any registry speaking the OCI API). It reports as text, JSON, SARIF or one line. It drops into another project's pytest suite in one line, writes its own test file with `stocktake init`, and writes itself as one dependency-free file with `stocktake vendor`.
+It reads **six ecosystems**: `python` (seven manifest kinds), `npm` (`package.json`, `package-lock.json`, `node_modules`), `workflows` (GitHub Actions pins), `binaries` (GitHub release downloads), `containers` (Dockerfile `FROM` base images, on any registry speaking the OCI API) and `precommit` (`.pre-commit-config.yaml` hook pins). It reports as text, JSON, SARIF or one line. It drops into another project's pytest suite in one line, writes its own test file with `stocktake init`, and writes itself as one dependency-free file with `stocktake vendor`.
 
 **It checks itself through its own plugin.** `stocktake = true` is in this repository's `pyproject.toml`, so every `pytest` run here exercises the thing other projects will use. If the plugin breaks, this suite notices first.
 
@@ -16,7 +16,7 @@ Pushed through `1b01058`, and CI passes on Windows and Ubuntu across Python 3.11
 ```bash
 py -3.11 -m venv .venv
 ./.venv/Scripts/python -m pip install -e ".[dev]"   # .venv/bin/python on macOS and Linux
-./.venv/Scripts/python -m pytest                    # 572 tests, ~8s (includes the live check, via the plugin)
+./.venv/Scripts/python -m pytest                    # 610 tests, ~11s (includes the live check, via the plugin)
 ./.venv/Scripts/stocktake vendor vendored/          # after ANY change to the core, or a test fails
 ./.venv/Scripts/python -m stocktake                 # check this project itself
 ```
@@ -49,7 +49,7 @@ The owner pushed through `1b01058` on 2026-10-30, and everything that could not 
 **One thing that first run showed:** the code-scanning job installed `-e .` without the dev extra, so this project's own dev dependencies had nothing to resolve against and arrived in the security tab as four `unpinned` notes about its own tooling — correct, and useless. The job now installs `.[dev]`. Four open alerts from that first run will be superseded by the next one.
 
 ## Work in progress
-None. M0 to M5, M5.1, M5.2, M5.3 and M6a are complete. The rest of M6 is open, and most of it is gated on one decision: `yarn.lock`, `pnpm-lock.yaml`, pre-commit hook pins and compose files all need YAML, which means either a vendored minimal parser or a dependency and an amendment to [ADR 0001](adr/0001-python-with-a-standard-library-only-core.md). **Ask the owner before choosing**; a census of their repositories puts the prize at 4 `.pre-commit-config.yaml` files and 1 `pnpm-lock.yaml`, which is a modest return for a dependency in a tool whose whole pitch is having none.
+None. M0 to M5, M5.1, M5.2, M5.3, M6a and M6b are complete. The rest of M6 is open and nothing is gated any more: the YAML decision is made and the parser exists. What is left needs evidence rather than a decision - `pnpm-lock.yaml` wants to be looked at before it is read (which of its layouts appear in practice), **yarn v1 is not YAML at all** so that line is two formats, and Go and Rust had no presence whatever in the owner's repositories when last counted.
 
 ## Next steps
 1. **One decision the owner has to make**, recorded in [ROADMAP.md](ROADMAP.md) under M5 and in the PRD's open questions: whether to publish to PyPI. The metadata is ready and the name was free on 2026-10-30. Not a coding task.
@@ -142,6 +142,19 @@ The owner has about ten repositories available for this, and the list is the mos
 In [PRD.md](PRD.md) under "Open questions". None block M1. The one worth deciding soonest: whether to publish `stocktake` to PyPI now (the name is free as of 2026-10-29) or wait until there are two real consumers.
 
 ## Session log
+### Session 14 - 2026-11-05
+Settled the YAML question the owner asked me to decide, and took the surface it unlocks. [ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md) has the reasoning; two parts of it are worth carrying forward.
+
+**Why not a dependency.** Not mainly the no-dependency promise, though that is real and tested. `stocktake vendor` concatenates *this package's own modules*, so it cannot inline a third party: a YAML dependency would not weaken adoption route 3, it would delete it - and that route exists for exactly the kind of project whose YAML we would be adding the dependency to read.
+
+**Why a subset is defensible now when the roadmap ruled it out.** The roadmap's objection was that a half-parser misses things silently, which was correct when written, because a failing reader returned nothing and nothing looked like an empty file. [ADR 0009](adr/0009-an-unread-file-makes-the-run-incomplete.md) changed that - an unreadable manifest is now exit 2 - so a parser that stops at the edge of what it understands is loud rather than silent. **This decision is not available without ADR 0009 and should be revisited if that ever is.**
+
+The subset was chosen from evidence rather than guessed: five real `.pre-commit-config.yaml` files, which between them use comments mid-entry, block mappings and sequences, plain scalars full of regex punctuation, flow collections, and - in one - a folded block scalar holding a shell command. A parser that refused block scalars would have refused a perfectly ordinary file, which is why I checked before choosing the boundary rather than after.
+
+Also: `github_ref` moved out of `workflows.py` and is now shared, because a pre-commit `rev` is a GitHub ref and two copies of the moving-tag rule is two places to get it wrong.
+
+572 -> 610 tests, with the refusals tested as prominently as the successes so the boundary stays visible. Lint, format and strict mypy clean; `vendored/` regenerated, and the copy carries the parser like any other core module. Verified against all five real config files - every one parsed, and the first run found all fifteen pins behind, `ruff-pre-commit` as far back as 0.6.9 against 0.17.4 and `pre-commit-hooks` a major behind in every repository. A guard test caught `yamlish` being a module in `readers/` that is not a reader; it joins `base` and `pep508` in the guard's own exemption list rather than the guard being loosened. Committed locally; not pushed.
+
 ### Session 13 - 2026-11-05
 Took the next roadmap item, choosing between M6's pieces on evidence rather than on the order they were listed: a census of the owner's repositories found 9 Dockerfiles, 4 `.pre-commit-config.yaml` and 1 `pnpm-lock.yaml`, and no Go, Rust or yarn at all. Containers also needed no decision from the owner, where the YAML kinds do. The owner picked the wider of the two container options.
 

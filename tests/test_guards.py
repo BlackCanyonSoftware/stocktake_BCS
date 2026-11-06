@@ -16,7 +16,7 @@ from stocktake.readers import READERS, groups
 from helpers import ROOT
 
 READER_PACKAGE = Path(__file__).resolve().parents[1] / "src" / "stocktake" / "readers"
-NOT_READERS = {"__init__", "base", "pep508"}  # the protocol and the shared requirement grammar, not readers themselves
+NOT_READERS = {"__init__", "base", "pep508", "yamlish"}  # the protocol and the shared grammars (requirements, YAML), not readers
 
 
 def test_every_reader_module_is_registered_so_none_can_be_written_and_never_run():

@@ -38,7 +38,7 @@ pip install git+https://github.com/BlackCanyonSoftware/stocktake_BCS
 stocktake --version
 ```
 
-That is the whole install, and it gives the complete tool — all five ecosystems, the pytest plugin, SARIF and the vendor command. Verified in a clean environment on 2026-10-30 and again on 2026-10-30 from a stranger's point of view. It tracks the default branch, so it is as current as that branch is.
+That is the whole install, and it gives the complete tool — all six ecosystems, the pytest plugin, SARIF and the vendor command. Verified in a clean environment on 2026-10-30 and again on 2026-10-30 from a stranger's point of view. It tracks the default branch, so it is as current as that branch is.
 
 **To declare it as a dev dependency** of a project — which routes 1 and 2 need, because the plugin has to be importable in the project's own test environment:
 
@@ -221,7 +221,7 @@ One file at the project root, or a `[tool.stocktake]` table in `pyproject.toml`.
 ```toml
 # .stocktake.toml
 ecosystems = ["python", "npm"]   # which readers to run; default: all
-                                 # (binaries, containers, npm, python, workflows)
+                                 # (binaries, containers, npm, precommit, python, workflows)
 exclude = ["vendor", "tests/fixtures"]
 accept_unread = ["go.mod"]       # "I know you cannot read this yet": stops the notice, stays in the JSON
 environment = "tools/env"        # where this project's Python environment is, if not ./.venv
@@ -327,6 +327,11 @@ assert failure_text(report) is None
 
 **Binaries** (the `binaries` ecosystem)
 - GitHub release downloads in Dockerfiles, resolving `${VERSION}` against the nearest earlier assignment
+
+**pre-commit** (the `precommit` ecosystem)
+- `repo` and `rev` pairs in `.pre-commit-config.yaml`, resolved as GitHub refs by the same rules the workflows reader uses
+- the file is YAML, which StockTake reads with its own strict subset rather than a dependency: a construct that subset does not implement makes the file **unreadable** and the run incomplete, rather than being quietly half-read ([ADR 0013](docs/adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md))
+- only GitHub-hosted hooks are resolved; `repo: local` and a hook hosted elsewhere are passed over
 
 **Containers** (the `containers` ecosystem)
 - `FROM image:tag` in Dockerfiles, on Docker Hub, `ghcr.io`, `mcr.microsoft.com` or any other registry speaking the OCI API

@@ -7,6 +7,7 @@ from stocktake.readers import (  # noqa: F401  (imported for the registration si
     containers,
     dockerfile,
     npm,
+    precommit,
     python_locks,
     python_project,
     python_requirements,

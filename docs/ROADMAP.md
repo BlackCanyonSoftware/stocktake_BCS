@@ -190,13 +190,24 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 - `groups()` returned registration order, which the single-file copy did not share, because it concatenates modules in computed dependency order. Package and copy disagreed about something a caller can see; it is sorted now and cannot drift again.
 - `evaluate` asked registries about names that nothing pins, whose answers `_judge` discards before reading. Invisible while the waste was a small JSON document; a tag listing for `debian` made it 67 KB of cache for an answer nobody read.
 
+### M6b — pre-commit hook pins, and the YAML decision · size M · `done` (2026-11-05)
+**Goal.** Settle the question the rest of M6 was gated on, and take the surface it unlocks: `.pre-commit-config.yaml` was the only manifest kind actually showing on the UNREAD list in the owner's repositories.
+
+**Scope.** [ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md) records the decision and, more importantly, why it was available now and not before.
+- `readers/yamlish.py`: the subset five real config files actually use — comments, block mappings and sequences, plain and quoted scalars, flow collections, block scalars — and a refusal for anchors, aliases, tags, merge keys, a second document, a tab, or any structure it cannot finish. Structure is parsed; leaf values are kept as text, because nothing reads inside them.
+- `readers/precommit.py`: hook repositories and their `rev`, pointing at the `rev:` line because that is the line somebody edits.
+- `github_ref` moved out of `workflows.py` and is shared: a pre-commit `rev` is a GitHub ref, and two copies of the moving-tag rule is two places to get it wrong.
+- A guard counting `repo`/`rev` pairs with an independent regular expression, deliberately not routed through the YAML subset.
+
+**The decision in one line.** A dependency was rejected because `stocktake vendor` concatenates this package's own modules and cannot inline a third-party one — a YAML dependency would not weaken the no-dependency promise so much as delete a whole adoption route. A subset became defensible only because [ADR 0009](adr/0009-an-unread-file-makes-the-run-incomplete.md) gave "I could not read this" an exit code, which is what turns a partial parser from silent into loud.
+
 ## Now
 
 ### M6 — More ecosystems · size L · `planned`
 Each is one reader, one registry client, one guard test. The first two are carried over from M3 and are the ones a real project is most likely to want next:
 
 - ~~**Containers**~~ **done** (2026-11-05), and wider than planned: not only Docker Hub but any registry that speaks OCI, because the real `FROM` lines in the author's own repositories span three. [ADR 0012](adr/0012-container-base-images.md) has the reasoning, including the part the roadmap line did not anticipate — a tag is not a version, and comparing `3.12-slim` against the newest tag of `python` recommends an image that is not slim.
-- **`yarn.lock` and `pnpm-lock.yaml`:** both need YAML. The options are a vendored minimal parser for the subset these files use, or accepting a dependency and amending [ADR 0001](adr/0001-python-with-a-standard-library-only-core.md). Regex-scanning them is **not** an option: it is the "misses things silently" failure the guard tests exist to catch, and a guard written with a second regex would not be independent of the first.
+- **`yarn.lock` and `pnpm-lock.yaml`:** the YAML question is **settled** — [ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md) chose a strict subset that refuses what it does not implement, over a dependency that would have deleted adoption route 3. The parser exists and is used by the pre-commit reader. What is left for these two is their own: `pnpm-lock.yaml` needs evidence about which of its layouts appear in practice, and **yarn v1 is not YAML at all** (berry's is), so that is two formats behind one roadmap line.
 - Go (`go.mod`, proxy.golang.org, OSV `Go`), Rust (`Cargo.toml`/`Cargo.lock`, crates.io, OSV `crates.io`), pre-commit hook pins, apt packages named in Dockerfiles, conda `environment.yml`.
 
 ### M7 — `propose` mode · size M · `planned`
@@ -211,6 +222,11 @@ Every `TODO` in the code gets a line here. There are none.
 - **Lock-file entries carry no line number**, only the file, because the TOML and JSON parsers do not report one. Findable by searching the text for the name, which is fragile; not worth it yet.
 - **`dist-info` directory names are trusted** for installed versions rather than the metadata inside them (ADR 0006). The documented layout, and what makes the lookup free.
 - **A project whose environment is in none of the usual places needs `--environment` passing once.** The brand-kit repository is this case. A config entry makes it permanent, but it has to be discovered first; the report's note is what makes that discoverable.
+
+From M6b (pre-commit and YAML).
+- **A valid config using an anchor is now unreadable rather than unread**, so it exits 2 where it used to exit 0. Deliberate, and the trade the whole subset rests on; none of the five real files is affected. Revisit only with evidence that such a file exists in practice.
+- **Only GitHub-hosted hooks are resolved.** A hook on GitLab is passed over silently rather than reported as `unknown`. Noise avoided, and a gap of the kind this project normally insists on naming.
+- **Line numbers and comments come from a second pass over the raw lines**, because the parser returns plain data with no positions. Two entries for one repository would both point at the first.
 
 From M6a (containers).
 - **A tag listing is large and is cached whole.** `python` is 89 KB and `debian` 67 KB, against about 2 KB for a small `ghcr.io` image. This is the existing cache-size item with a sharper edge, and the fix is the same for every client: keep what is read, not what was returned.

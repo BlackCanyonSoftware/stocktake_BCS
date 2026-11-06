@@ -1849,11 +1849,16 @@ def workflow_uses(text: str) -> list[Used]:
         segments = target.split("/")
         if not separator or not ref.strip() or len(segments) < 2:
             continue  # no ref at all, or not an owner/repo reference
-        found.append(_read_ref("/".join(segments[:2]), ref.strip(), comment, number))
+        found.append(github_ref("/".join(segments[:2]), ref.strip(), comment, number))
     return found
 
 
-def _read_ref(repo: str, ref: str, comment: str, line: int) -> Used:
+def github_ref(repo: str, ref: str, comment: str, line: int) -> Used:
+    """How a GitHub ref written as a pin is read: a tag, a moving tag, or a commit SHA.
+
+    Public and shared, because a pre-commit `rev` is the same thing written in a different file, and two copies of the moving-tag rule is
+    two places for it to be got wrong (docs/adr/0008).
+    """
     if VERSION_REF.match(ref):
         version = ref.removeprefix("v")
         # `@v7` and `@v7.1` are tags GitHub advances as it releases; `@v7.1.0` is one by convention nobody moves.
@@ -1878,6 +1883,196 @@ def read_workflow_actions(path: Path, text: str, context: Context) -> Iterable[D
             used.note,
             used.moving,
         )
+
+# ======================================================================================================================
+# stocktake.readers.yamlish
+# ======================================================================================================================
+
+"""Enough YAML to read a manifest, and a refusal for everything else.
+
+Several dependency files are YAML — pre-commit hook pins today, `pnpm-lock.yaml` and compose files later — and StockTake has no runtime
+dependencies and is not getting one ([ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md)). So this reads the part of YAML
+those files actually use and **raises on the rest** rather than guessing.
+
+The refusal is the whole design. The roadmap's objection to doing this at all was that a half-parser is the "misses things silently" failure
+the guard tests exist to catch, and that was right when it was written: there was nowhere for "I could not read this" to go. There is now.
+[ADR 0009](adr/0009-an-unread-file-makes-the-run-incomplete.md) made an unreadable manifest fail the run with exit 2, so a parser that stops
+at the edge of what it understands is loud, not silent. That is what makes a subset safe, and it is why every unsupported construct below
+raises instead of being skipped.
+
+What it reads: comments, block mappings, block sequences, plain and quoted scalars, flow collections, and block scalars (`|`, `>`).
+What it refuses: anchors (`&`), aliases (`*`), tags (`!`), merge keys (`<<`), more than one document, and a tab used as indentation.
+
+**Structure is parsed; leaf values are kept as text.** A version is a string, and nothing here needs to know that `[--fix=lf]` is a list or
+that `'9.0'` is a number. Not parsing what nothing reads is the difference between this and a YAML library, and it is most of why this is
+small enough to be worth trusting.
+"""
+
+
+
+
+# A value that begins with one of these means something this does not implement, and misreading it would be worse than refusing it.
+REFUSED = {
+    "&": "uses a YAML anchor",
+    "*": "uses a YAML alias",
+    "!": "uses a YAML tag",
+}
+
+# `key:` or `key: value`, where the key is plain or quoted. A `:` inside a plain value (a URL) is not a key separator, which is why the key
+# is matched rather than the line being split on the first colon.
+KEY = re.compile(r"""^(?P<key>"[^"]*"|'[^']*'|[^\s:#][^:#]*?)\s*:(?:\s+(?P<value>.*))?\s*$""")
+ITEM = re.compile(r"^-(?:\s+(?P<value>.*))?\s*$")
+BLOCK_SCALAR = re.compile(r"^[|>][0-9+-]*$")
+
+
+@dataclass(frozen=True, slots=True)
+class Line:
+    number: int
+    indent: int
+    text: str
+
+
+def _strip_comment(text: str) -> str:
+    """A `#` starts a comment only when it follows whitespace and is outside quotes, which is YAML's own rule.
+
+    It matters here: `exclude: ^(a|b)` and an entry holding a shell command both contain characters that a looser rule would cut at.
+    """
+    quote = ""
+    for index, character in enumerate(text):
+        if quote:
+            if character == quote:
+                quote = ""
+        elif character in "\"'":
+            quote = character
+        elif character == "#" and (index == 0 or text[index - 1].isspace()):
+            return text[:index]
+    return text
+
+
+def _unquote(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    return value
+
+
+def _lines(text: str, where: str) -> list[Line]:
+    """Every line that carries content, with its indentation, and a refusal for anything this cannot read line-by-line."""
+    found: list[Line] = []
+    started = False
+    for number, raw in enumerate(text.splitlines(), 1):
+        if "\t" in raw[: len(raw) - len(raw.lstrip())]:
+            raise UnreadableManifest(f"{where}uses a tab to indent line {number}, which YAML does not allow")
+        body = _strip_comment(raw).rstrip()
+        if not body.strip():
+            continue
+        if body.strip() in ("---", "..."):
+            # One document is all any manifest here needs, and a second would silently replace the first.
+            if started:
+                raise UnreadableManifest(f"{where}holds more than one YAML document (line {number})")
+            continue
+        started = True
+        found.append(Line(number, len(body) - len(body.lstrip()), body.strip()))
+    return found
+
+
+class _Reader:
+    def __init__(self, lines: list[Line], raw: list[str], where: str) -> None:
+        self.lines = lines
+        self.raw = raw
+        self.where = where
+        self.at = 0
+
+    def _refuse(self, line: Line, why: str) -> UnreadableManifest:
+        return UnreadableManifest(f"{self.where}{why} at line {line.number}, which StockTake's YAML reader does not implement")
+
+    def _value(self, line: Line, text: str) -> Any:
+        """A leaf, or the nested block that follows when the leaf is empty."""
+        text = text.strip()
+        if text and text[0] in REFUSED:
+            raise self._refuse(line, REFUSED[text[0]])
+        if BLOCK_SCALAR.match(text):
+            return self._block_scalar(line)
+        if text:
+            return _unquote(text)
+        # Nothing after the colon: either a nested block indented further, or an empty value.
+        if self.at < len(self.lines) and self.lines[self.at].indent > line.indent:
+            return self.parse(self.lines[self.at].indent)
+        return ""
+
+    def _block_scalar(self, line: Line) -> str:
+        """The indented lines under a `|` or `>`, joined.
+
+        Consumed rather than skipped: a folded scalar holding a shell command is in one of the real files this was written for, and a reader
+        that did not know where it ended would read its continuation lines as structure.
+        """
+        collected: list[str] = []
+        while self.at < len(self.lines) and self.lines[self.at].indent > line.indent:
+            collected.append(self.lines[self.at].text)
+            self.at += 1
+        return " ".join(collected)
+
+    def parse(self, indent: int) -> Any:
+        """Everything at this indentation: a mapping, a sequence, or a single scalar."""
+        if self.at >= len(self.lines):
+            return ""
+        return self._sequence(indent) if ITEM.match(self.lines[self.at].text) else self._mapping(indent)
+
+    def _sequence(self, indent: int) -> list[Any]:
+        items: list[Any] = []
+        while self.at < len(self.lines) and self.lines[self.at].indent == indent:
+            line = self.lines[self.at]
+            match = ITEM.match(line.text)
+            if match is None:
+                break
+            self.at += 1
+            inside = (match.group("value") or "").strip()
+            if not inside:
+                items.append(self.parse(self.lines[self.at].indent) if self.at < len(self.lines) else "")
+            elif (opening := KEY.match(inside)) is not None:
+                # `- key: value` opens a mapping whose first key sits on the dash's own line.
+                items.append(self._inline_mapping(line, inside, opening))
+            else:
+                items.append(self._value(line, inside))
+        return items
+
+    def _inline_mapping(self, dash: Line, first: str, match: re.Match[str]) -> dict[str, Any]:
+        """A mapping begun on a `-` line. Its later keys are indented to where that first key started.
+
+        The match is handed in rather than recomputed: the caller had to make it to know this was a mapping at all, and re-deriving it here
+        would need an `assert` to satisfy the type checker -- which `python -O` removes, turning a type error into a crash.
+        """
+        inner = dash.indent + (len(dash.text) - len(dash.text[1:].lstrip()))
+        found: dict[str, Any] = {_unquote(match.group("key")): self._value(Line(dash.number, inner, first), match.group("value") or "")}
+        found.update(self._mapping(inner) if self.at < len(self.lines) and self.lines[self.at].indent == inner else {})
+        return found
+
+    def _mapping(self, indent: int) -> dict[str, Any]:
+        found: dict[str, Any] = {}
+        while self.at < len(self.lines) and self.lines[self.at].indent == indent:
+            line = self.lines[self.at]
+            if line.text.startswith("<<"):
+                raise self._refuse(line, "uses a YAML merge key")
+            match = KEY.match(line.text)
+            if match is None:
+                break
+            self.at += 1
+            found[_unquote(match.group("key"))] = self._value(line, match.group("value") or "")
+        return found
+
+
+def parse(text: str, where: str = "") -> Any:
+    """One YAML document, as far as this reads YAML. Raises `UnreadableManifest` at the first thing it does not implement."""
+    prefix = f"{where}: " if where else ""
+    lines = _lines(text, prefix)
+    if not lines:
+        return {}
+    reader = _Reader(lines, text.splitlines(), prefix)
+    parsed = reader.parse(lines[0].indent)
+    if reader.at < len(reader.lines):
+        stuck = reader.lines[reader.at]
+        raise UnreadableManifest(f"{prefix}could not be read past line {stuck.number} ({stuck.text[:40]!r})")
+    return parsed
 
 # ======================================================================================================================
 # stocktake.registries.github
@@ -2706,6 +2901,106 @@ def read_base_images(path: Path, text: str, context: Context) -> Iterable[Dep]:
         # `moving=True`: `python:3.12` already points at the newest 3.12.x, so only a change at the precision written down is an update
         # (docs/adr/0008). A digest beside the tag fixes the image exactly, so that one is not moving.
         yield Dep("Docker", _named(image, variant), version, source, tag, "image", "", moving=not digest)
+
+# ======================================================================================================================
+# stocktake.readers.precommit
+# ======================================================================================================================
+
+"""`.pre-commit-config.yaml`: the hook versions a repository gates its own commits with.
+
+A pre-commit `rev` is a GitHub ref and nothing more exotic, so the rules for reading one already exist in `workflows.py` and are imported
+rather than written a second time: a full version tag is a pin, `v1` and `v1.2` are tags their publisher advances
+([ADR 0008](adr/0008-a-tag-its-publisher-moves-is-a-range.md)), and a commit SHA has no version unless a comment beside it names one.
+
+`repo: local` and `repo: meta` are pre-commit's own words for "the hooks are defined here", so there is nothing to ask anybody about.
+
+The file is YAML, which StockTake reads through its own strict subset rather than a dependency
+([ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md)). A construct that subset does not implement makes the file
+unreadable and the run incomplete, which is the point: a config this could only half-read is one it must not quietly half-check.
+"""
+
+
+
+
+FILE_NAMES = frozenset({".pre-commit-config.yaml", ".pre-commit-config.yml"})
+
+# pre-commit's own reserved values for "these hooks live in this repository", neither of which names anything a registry knows.
+NOT_A_REPOSITORY = frozenset({"local", "meta"})
+
+GITHUB = "https://github.com/"
+
+
+def is_precommit(path: Path) -> bool:
+    return path.name in FILE_NAMES
+
+
+def repository_of(url: str) -> str | None:
+    """`owner/repo` for a GitHub URL, or None for anywhere else.
+
+    Only GitHub is resolved because only GitHub has a client here. A hook hosted on GitLab is left alone rather than reported as an
+    `unknown` nobody can act on; it will show up the day there is something to ask.
+    """
+    if url.lower() in NOT_A_REPOSITORY or not url.lower().startswith(GITHUB):
+        return None
+    segments = url[len(GITHUB) :].removesuffix(".git").strip("/").split("/")
+    return "/".join(segments[:2]) if len(segments) >= 2 else None
+
+
+def locate_rev(text: str, url: str) -> tuple[int, str]:
+    """The line this repository's `rev:` is written on, and whatever comment trails it.
+
+    Two things the parser cannot give. It returns plain data with no positions, and threading one through every value to label a single key
+    would be most of the cost of a real YAML library; and it strips comments, where a commit-pinned `rev` keeps its `# v2.1.0`. So the
+    positions come from a second, independent pass over the raw lines.
+
+    The `rev:` line rather than the `repo:` line, because that is the line somebody edits. Two entries for one repository would both be
+    pointed at the first, which is the known limit of doing it this way.
+    """
+    current = ""
+    for number, raw in enumerate(text.splitlines(), 1):
+        stripped = raw.strip().lstrip("-").strip()
+        if stripped.startswith("repo:"):
+            current = stripped[len("repo:") :].strip().strip("'\"")
+        elif stripped.startswith("rev:") and current == url:
+            _, _, comment = stripped.partition("#")
+            return number, comment
+    return 0, ""
+
+
+def hook_repositories(data: Any) -> list[tuple[str, str]]:
+    """Every `(repo, rev)` the config declares, as written. Entries with no `rev` are left out: there is no version in them."""
+    repos = data.get("repos") if isinstance(data, dict) else None
+    if not isinstance(repos, list):
+        return []
+    found = []
+    for entry in repos:
+        if not isinstance(entry, dict):
+            continue
+        url, rev = entry.get("repo"), entry.get("rev")
+        if isinstance(url, str) and isinstance(rev, str) and url and rev:
+            found.append((url, rev))
+    return found
+
+
+@reader("precommit", is_precommit)
+def read_precommit_hooks(path: Path, text: str, context: Context) -> Iterable[Dep]:
+    """Hook repositories a pre-commit config pins."""
+    for url, rev in hook_repositories(parse(text, path.name)):
+        repository = repository_of(url)
+        if repository is None:
+            continue
+        line, comment = locate_rev(text, url)
+        used = github_ref(repository, rev.strip().strip("'\""), comment, line)
+        yield Dep(
+            "GitHub",
+            used.repo,
+            used.version,
+            context.source(path, used.line or None),
+            used.ref,
+            "ci",
+            used.note,
+            used.moving,
+        )
 
 # ======================================================================================================================
 # stocktake.registries

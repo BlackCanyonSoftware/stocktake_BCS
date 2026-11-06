@@ -68,11 +68,16 @@ def workflow_uses(text: str) -> list[Used]:
         segments = target.split("/")
         if not separator or not ref.strip() or len(segments) < 2:
             continue  # no ref at all, or not an owner/repo reference
-        found.append(_read_ref("/".join(segments[:2]), ref.strip(), comment, number))
+        found.append(github_ref("/".join(segments[:2]), ref.strip(), comment, number))
     return found
 
 
-def _read_ref(repo: str, ref: str, comment: str, line: int) -> Used:
+def github_ref(repo: str, ref: str, comment: str, line: int) -> Used:
+    """How a GitHub ref written as a pin is read: a tag, a moving tag, or a commit SHA.
+
+    Public and shared, because a pre-commit `rev` is the same thing written in a different file, and two copies of the moving-tag rule is
+    two places for it to be got wrong (docs/adr/0008).
+    """
     if VERSION_REF.match(ref):
         version = ref.removeprefix("v")
         # `@v7` and `@v7.1` are tags GitHub advances as it releases; `@v7.1.0` is one by convention nobody moves.

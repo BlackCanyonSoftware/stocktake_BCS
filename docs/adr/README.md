@@ -14,5 +14,6 @@
 | [0010](0010-a-run-that-checked-nothing-is-not-a-pass.md) | A run that checked nothing is not a pass | accepted |
 | [0011](0011-accepting-a-vulnerable-package.md) | Accepting a vulnerable package, in one entry | accepted |
 | [0012](0012-container-base-images.md) | Container base images, and why a tag is not a version | accepted |
+| [0013](0013-a-strict-yaml-subset-rather-than-a-dependency.md) | A strict YAML subset, rather than a YAML dependency | accepted |
 
 One record per significant decision: context, options considered, decision, consequences. A superseded record is kept and marked, never deleted.
