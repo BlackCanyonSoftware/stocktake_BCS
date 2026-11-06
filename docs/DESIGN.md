@@ -1,6 +1,6 @@
 # StockTake: output design
 
-StockTake has no graphical interface. Its interface is a terminal report, an exit code and a JSON document, so this is where the usual `DESIGN.md` content goes: audience and tone, the tokens (here: statuses, severities, exit codes), the inventory of output states, and the writing rules. The web-app parts of the house standard — light/dark toggle, info buttons, brand assets, WCAG layout work — do not apply to a CLI tool and are deliberately absent. Accessibility is addressed below as terminal accessibility, which is a real concern and a different one.
+StockTake has no graphical interface. Its interface is a terminal report, an exit code and a JSON document, so this is where the usual `DESIGN.md` content goes: audience and tone, the tokens (here: statuses, severities, exit codes), the inventory of output states, and the writing rules. The web-app parts of the house standard — light/dark toggle, info buttons, WCAG layout work — do not apply to a CLI tool and are deliberately absent; the brand assets this project does carry, and the design standard it would answer to if it ever grew a screen, are in *Brand* below. Accessibility is addressed below as terminal accessibility, which is a real concern and a different one.
 
 ## Audience and tone
 Read by someone who is in the middle of something else and wants to know whether they have to care. Tone: a colleague reporting what they found, not a scanner shouting. Never alarmist, never reassuring beyond the evidence. "No known advisories" is sayable; "safe" is not.
@@ -119,6 +119,45 @@ The flag is `--config`, not `--policy`: the file holds the excludes and the enab
 Defaults chosen so the bare command is the useful one: current directory, text, everything, cache honoured, worst five advisories per package. Every flag has a long form; short forms are not provided, because this is read in scripts more often than typed.
 
 `--help` is the documentation most people will read, so each flag's help text says what it is for, not what it is.
+
+## Brand
+
+| | |
+|---|---|
+| Slug | `stocktake` |
+| Set | `readme` - two files, the light and dark banner lockups |
+| Lives in | `docs/brand/`, with `BUNDLE.json` beside them |
+| Design standard | **Ant Design** |
+| Named in | Chivo (the wordmark, already drawn into the banner art) |
+| Reads in | Public Sans |
+| Bundled from | brandkit **1.56.0**, Brand Logos commit `c51448c1` (dirty) |
+
+Re-sync and verify (from this project's root; `py -3.13` specifically, see [HANDOFF.md](HANDOFF.md)):
+
+```bash
+PYTHONPATH="C:/Users/Kpier/Documents/Brand Logos/src" py -3.13 -m brandkit bundle stocktake docs/brand --set readme
+PYTHONPATH="C:/Users/Kpier/Documents/Brand Logos/src" py -3.13 -m brandkit check  stocktake docs/brand --set readme
+```
+
+**The `readme` set is two files, and that is the whole of it.** The brand library's own `BRAND.md` says why, under *Taking this into a
+project*: "A repository is not an application. A command-line tool has no screen, and a `static/brand` folder of stylesheets, fonts and
+maskable icons in a project that has no `static/` is a set nobody will keep in step." So the stylesheets, the font files and the icon set in
+the `app` set are **deliberately absent here**, along with a tagline and a domain. The typeface reaches this project inside the drawn banner
+art, not through a stylesheet, which is why a change of wordmark face arrives as two new PNGs.
+
+### The design standard, and why it is recorded for a tool with no screen
+
+This brand is built to **Ant Design**, and to nothing else. StockTake has no graphical interface and none is planned, so there is nothing
+here to bring up to it: the standard sets corner radii, control heights, the type scale, elevation and motion, and this project's interface
+is a terminal report, an exit code and a JSON document.
+
+It is written down anyway, because the day this grows a screen is the day somebody needs to know which standard it answers to, and the
+answer must not be "whichever one was fashionable that week". If that day comes, the rules are in `dist/stocktake/BRAND.md` under *The
+design standard*, the fuller version is `docs/standards/ant.md` in the brand library, and `dist/stocktake/template/showcase.html` is the
+whole kit on one page to compare against. The short version of Ant: dense by design, labels above their controls, 32 px controls, corners
+from the 2/4/6/8 scale, a 4 px spacing unit, outlined-by-default buttons with one solid primary per group, and tables in three densities.
+
+**Do not mix in a second standard.** Two standards on one product is two answers to every button.
 
 ## Terminal accessibility
 - Information is never carried by colour alone; in fact no colour is emitted at all.

@@ -21,6 +21,8 @@ py -3.11 -m venv .venv
 ./.venv/Scripts/python -m stocktake                 # check this project itself
 ```
 
+Brand last checked: 2026-11-05 · brandkit 1.56.0 · Brand Logos commit c51448c1 (dirty) · set: readme · result: in sync
+
 ## What this project is
 A dependency checker that drops into a project's own test suite: it reads what the project pins, asks the public registries for newer versions and known advisories, and fails the tests only on something actually unsafe. Never edits a file. See [PRD.md](PRD.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 

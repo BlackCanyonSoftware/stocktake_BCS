@@ -86,6 +86,7 @@ One module in `readers/`, one in `registries/`, an import line in each `__init__
 - **The rules live in `check.py` only.** The CLI and the plugin both call them; neither works them out for itself.
 - **Never weaken, skip or delete a test to get a passing run.** If a test is wrong, say why first.
 - **Commit locally; never push.** The owner reviews and pushes. No history rewriting or force-pushing.
+- **Load tokens from the brand bundle; never retype a brand colour, size or font; never edit a generated brand file by hand.** This brand is built to Ant Design and to nothing else ([docs/DESIGN.md](docs/DESIGN.md), *Brand*). There is no screen here today, so there is nothing to style - the rule is written down for the day there is.
 - **Ask before** changing the stack, adding any runtime dependency, publishing anything, or changing a decision an ADR records.
 
 ## Definition of done
