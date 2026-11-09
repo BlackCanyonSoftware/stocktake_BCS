@@ -21,7 +21,7 @@ def go_project(tmp_path, config: str = ""):
     root = tmp_path / "project"
     root.mkdir()
     (root / "go.mod").write_text("module example.com/x\n\ngo 1.22\n", encoding="utf-8")
-    (root / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n", encoding="utf-8")
+    (root / "Cargo.toml").write_text('[package]\nname = "x"\nversion = "0.1.0"\n', encoding="utf-8")
     if config:
         (root / ".stocktake.toml").write_text(config, encoding="utf-8")
     return root
@@ -35,7 +35,7 @@ def judged(tmp_path, root, net=None, **kwargs):
 def test_a_project_whose_every_manifest_is_unread_is_not_a_checked_project(tmp_path):
     report = judged(tmp_path, go_project(tmp_path))
     assert report.findings == ()
-    assert report.unread_manifests == ("go.mod", "pnpm-lock.yaml")
+    assert report.unread_manifests == ("Cargo.toml", "go.mod")
     assert report.nothing_was_checked
     assert not report.complete
     assert not report.failed, "nothing unsafe was found; the point is that nothing was looked at"
@@ -50,7 +50,7 @@ def test_partial_coverage_is_still_a_pass(tmp_path):
     (root / "requirements.txt").write_text("flask==3.0.0\n", encoding="utf-8")
     report = judged(tmp_path, root, FakeNet(pypi={"flask": ("3.0.0", [])}))
     assert [f.dep.name for f in report.findings] == ["flask"]
-    assert report.unread_manifests == ("go.mod", "pnpm-lock.yaml")
+    assert report.unread_manifests == ("Cargo.toml", "go.mod")
     assert not report.nothing_was_checked
     assert report.complete
 
@@ -67,15 +67,15 @@ def test_a_project_with_no_dependency_files_at_all_is_still_a_pass(tmp_path):
 
 def test_accepting_the_unread_files_restores_the_pass(tmp_path):
     """The escape hatch, and the sentence it makes the project write: these are the files, and I know they are not checked."""
-    root = go_project(tmp_path, 'accept_unread = ["go.mod", "pnpm-lock.yaml"]\n')
+    root = go_project(tmp_path, 'accept_unread = ["Cargo.toml", "go.mod"]\n')
     report = judged(tmp_path, root)
-    assert report.accepted_unread == ("go.mod", "pnpm-lock.yaml")
+    assert report.accepted_unread == ("Cargo.toml", "go.mod")
     assert report.unread_manifests == ()
     assert report.complete
 
 
 def test_excluding_the_only_manifest_is_a_deliberate_statement_and_still_passes(tmp_path):
-    root = go_project(tmp_path, 'exclude = ["go.mod", "pnpm-lock.yaml"]\n')
+    root = go_project(tmp_path, 'exclude = ["Cargo.toml", "go.mod"]\n')
     assert judged(tmp_path, root).complete
 
 
@@ -100,7 +100,7 @@ def test_every_format_says_the_project_was_not_checked(tmp_path):
 def test_the_message_names_the_files_and_the_way_out(tmp_path):
     message = incomplete_text(judged(tmp_path, go_project(tmp_path)))
     assert message is not None
-    assert "go.mod, pnpm-lock.yaml" in message
+    assert "Cargo.toml, go.mod" in message
     assert "accept_unread" in message
 
 
@@ -118,7 +118,7 @@ def test_the_command_exits_two(tmp_path):
 
 
 def test_the_command_exits_zero_once_the_project_accepts_them(tmp_path):
-    root = go_project(tmp_path, 'accept_unread = ["go.mod", "pnpm-lock.yaml"]\n')
+    root = go_project(tmp_path, 'accept_unread = ["Cargo.toml", "go.mod"]\n')
     code = run(
         ["--root", str(root)],
         registries=registries(tmp_path, FakeNet()),

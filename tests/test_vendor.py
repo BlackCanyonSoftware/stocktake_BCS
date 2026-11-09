@@ -151,7 +151,7 @@ def test_the_copy_offers_the_api_its_own_docstring_promises():
 def test_the_copy_has_every_reader_registered():
     copy = vendored()
     assert copy.groups() == ("binaries", "containers", "npm", "precommit", "python", "workflows")
-    assert len(copy.READERS) == 12
+    assert len(copy.READERS) == 13
 
 
 def test_a_name_that_was_renamed_on_import_still_works_in_the_copy(tmp_path):

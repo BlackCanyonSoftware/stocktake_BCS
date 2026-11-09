@@ -1,7 +1,7 @@
 # StockTake: handoff
 
 ## Current state
-**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1, M5.2 and M5.3** (the responses to the first two outside trial reports) and **M6a and M6b**, container base images and pre-commit hook pins. 610 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. The next session continues Milestone 6 - `pnpm-lock.yaml`, yarn, compose files, Go, Rust - or takes the one decision M5 left to the owner, or the next trial report. **The YAML question is settled** ([ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md)): a strict subset that refuses what it cannot read, and the parser is written and in use.
+**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1, M5.2 and M5.3** (the responses to the first two outside trial reports) and **M6a, M6b and M6c**, container base images, pre-commit hook pins and pnpm lock files. 624 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. **Nothing in any of the owner's projects is unread any more** - a census after this session found no reported unread manifest anywhere. So the next session is no longer about coverage: it is M7 (`propose` mode), the one decision M5 left to the owner, the next trial report, or the tech-debt items, of which the cache size is now the sharpest. **The YAML question is settled** ([ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md)): a strict subset that refuses what it cannot read, and the parser is written and in use.
 
 **It has been run against ten real projects** — well over two thousand dependencies, Python, Node and mixed — and found vulnerable dependencies in nearly every one. Three of its own bugs were found that way and only that way. Two more projects have been handed it cold and written down what happened: [Can-AI](feedback/2026-10-30-claude-code-session.md), which found three P0s, and [Pixel Galaxy Studio](feedback/2026-10-30-claude-code-windows-readme-cold-trial.md), which found none and instead found what the four untried adoption routes cost.
 
@@ -16,7 +16,7 @@ Pushed through `1b01058`, and CI passes on Windows and Ubuntu across Python 3.11
 ```bash
 py -3.11 -m venv .venv
 ./.venv/Scripts/python -m pip install -e ".[dev]"   # .venv/bin/python on macOS and Linux
-./.venv/Scripts/python -m pytest                    # 610 tests, ~11s (includes the live check, via the plugin)
+./.venv/Scripts/python -m pytest                    # 624 tests, ~7s (includes the live check, via the plugin)
 ./.venv/Scripts/stocktake vendor vendored/          # after ANY change to the core, or a test fails
 ./.venv/Scripts/python -m stocktake                 # check this project itself
 ```
@@ -51,7 +51,7 @@ The owner pushed through `1b01058` on 2026-10-30, and everything that could not 
 **One thing that first run showed:** the code-scanning job installed `-e .` without the dev extra, so this project's own dev dependencies had nothing to resolve against and arrived in the security tab as four `unpinned` notes about its own tooling — correct, and useless. The job now installs `.[dev]`. Four open alerts from that first run will be superseded by the next one.
 
 ## Work in progress
-None. M0 to M5, M5.1, M5.2, M5.3, M6a and M6b are complete. The rest of M6 is open and nothing is gated any more: the YAML decision is made and the parser exists. What is left needs evidence rather than a decision - `pnpm-lock.yaml` wants to be looked at before it is read (which of its layouts appear in practice), **yarn v1 is not YAML at all** so that line is two formats, and Go and Rust had no presence whatever in the owner's repositories when last counted.
+None. M0 to M5, M5.1, M5.2, M5.3, M6a, M6b and M6c are complete. The rest of M6 is open and nothing is gated any more: the YAML decision is made and the parser exists. What is left needs evidence rather than a decision - `pnpm-lock.yaml` wants to be looked at before it is read (which of its layouts appear in practice), **yarn v1 is not YAML at all** so that line is two formats, and Go and Rust had no presence whatever in the owner's repositories when last counted.
 
 ## Next steps
 1. **One decision the owner has to make**, recorded in [ROADMAP.md](ROADMAP.md) under M5 and in the PRD's open questions: whether to publish to PyPI. The metadata is ready and the name was free on 2026-10-30. Not a coding task.
@@ -144,6 +144,21 @@ The owner has about ten repositories available for this, and the list is the mos
 In [PRD.md](PRD.md) under "Open questions". None block M1. The one worth deciding soonest: whether to publish `stocktake` to PyPI now (the name is free as of 2026-10-29) or wait until there are two real consumers.
 
 ## Session log
+### Session 15 - 2026-11-08
+Read `pnpm-lock.yaml`, which was the last manifest kind still unread in any of the owner's projects.
+
+**The evidence changed the priority.** A census after M6a and M6b found *nothing* reported as unread anywhere, except this - and the earlier count of "1 pnpm file" badly undersold it, because that one file is a 5719-line lock at `lockfileVersion: '9.0'` holding 653 packages, every one of them invisible. One lock file is worth a great many manifests. (The census had also missed it: it only looks at folders with a `.git`, and that project has none.)
+
+The YAML subset from [ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md) parsed the real file unchanged, in 29 ms, which is the strongest evidence so far that the subset was drawn in the right place.
+
+Two decisions in the reader worth keeping:
+- **`packages:` is read and `snapshots:` is ignored.** The snapshot keys carry peer-dependency suffixes in parentheses, nested ones at that (`@babel/helper-module-transforms@7.29.7(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1)`), and name the same packages again. Reading the plain list means nothing has to unpick a parenthesis.
+- **A key that is neither a package nor a recognised non-registry entry is refused, not skipped.** pnpm's layout has changed between major lock versions before. Recognising packages by shape means a future lock that keeps the shape is read, and one that does not says so rather than reporting an empty project.
+
+610 -> 624 tests. Lint, format and strict mypy clean; `vendored/` regenerated. **Verified twice over against the real project**, to the standard the trial reports set: an independent regex over the lock found the same 653 packages as the reader with no difference either way, and a direct OSV batch query with no StockTake code involved named 12 vulnerable packages - the same 12 StockTake reports from that lock, nothing missing and nothing extra. The run reports 681 checked, 16 vulnerable across 12 packages, including a critical in `tar`, two in `tinypool` and one in `vitest`.
+
+One test fixture had gone stale as a direct result: `test_nothing_checked.py` built its "every manifest is a kind nothing reads" project from `go.mod` and `pnpm-lock.yaml`, and the second half of that premise stopped being true. It uses `Cargo.toml` now. Committed locally; not pushed.
+
 ### Session 14 - 2026-11-05
 Settled the YAML question the owner asked me to decide, and took the surface it unlocks. [ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md) has the reasoning; two parts of it are worth carrying forward.
 

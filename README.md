@@ -320,6 +320,7 @@ assert failure_text(report) is None
 - `package.json`: all four dependency sections, past the values that are not registry versions at all (`file:`, `git+`, `workspace:`, `npm:` aliases, `owner/repo` shorthand)
 - `package-lock.json`, both the modern flat layout and the old nested one, skipping the project itself, its workspaces and its links
 - ranges resolved against what is actually in `node_modules`, including dependencies hoisted to the top of a workspace
+- `pnpm-lock.yaml`, read through the same strict YAML subset as the pre-commit config: every package under `packages:`, with a key this reader does not recognise making the file **unreadable** rather than quietly passing it over, because pnpm's layout has changed between major lock versions before
 
 **CI** (the `workflows` ecosystem)
 - `uses: owner/repo@ref` in `.github/workflows/*.yml` and `action.yml`, including reusable workflows

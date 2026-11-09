@@ -201,13 +201,25 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 
 **The decision in one line.** A dependency was rejected because `stocktake vendor` concatenates this package's own modules and cannot inline a third-party one — a YAML dependency would not weaken the no-dependency promise so much as delete a whole adoption route. A subset became defensible only because [ADR 0009](adr/0009-an-unread-file-makes-the-run-incomplete.md) gave "I could not read this" an exit code, which is what turns a partial parser from silent into loud.
 
+### M6c — pnpm lock files · size S · `done` (2026-11-08)
+**Goal.** Take the last manifest kind that was still unread in any of the owner's projects. A census after M6a and M6b found nothing unread at all except this, and "one file" undersold it: that one file is a 5719-line lock holding 653 packages.
+
+**Scope.**
+- `readers/pnpm.py`: every package under `packages:`. `snapshots:` is ignored on purpose — its keys carry peer-dependency suffixes in parentheses, nested ones at that, and name the same packages again.
+- Name and version split on the **last** `@`, because a scoped package begins with one.
+- A key that is neither a package nor a recognised non-registry entry (`link:`, `file:`, `workspace:`, a tarball) is **refused**, not skipped: pnpm's layout has changed between major lock versions before, and a reader that quietly found nothing in a file whose shape had moved is the failure [ADR 0009](adr/0009-an-unread-file-makes-the-run-incomplete.md) exists to prevent. A lock with no `packages:` at all is refused by name and version number.
+- No new group and no new registry client: these are npm packages, so `ecosystems = ["npm"]` picks them up and OSV answers for them already.
+
+**Verified against the real project, twice over.** An independent regex over the lock found the same 653 packages as the reader, with no difference either way. A direct OSV batch query — no StockTake code involved — named 12 vulnerable packages, and StockTake's vulnerable set from that lock is the same 12, with nothing missing and nothing extra. The run reports 681 checked, 16 vulnerable across 12 packages, including a critical in `tar`, two in `tinypool` and one in `vitest`.
+
 ## Now
 
 ### M6 — More ecosystems · size L · `planned`
 Each is one reader, one registry client, one guard test. The first two are carried over from M3 and are the ones a real project is most likely to want next:
 
 - ~~**Containers**~~ **done** (2026-11-05), and wider than planned: not only Docker Hub but any registry that speaks OCI, because the real `FROM` lines in the author's own repositories span three. [ADR 0012](adr/0012-container-base-images.md) has the reasoning, including the part the roadmap line did not anticipate — a tag is not a version, and comparing `3.12-slim` against the newest tag of `python` recommends an image that is not slim.
-- **`yarn.lock` and `pnpm-lock.yaml`:** the YAML question is **settled** — [ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md) chose a strict subset that refuses what it does not implement, over a dependency that would have deleted adoption route 3. The parser exists and is used by the pre-commit reader. What is left for these two is their own: `pnpm-lock.yaml` needs evidence about which of its layouts appear in practice, and **yarn v1 is not YAML at all** (berry's is), so that is two formats behind one roadmap line.
+- ~~**`pnpm-lock.yaml`**~~ **done** (2026-11-08). The evidence it was waiting for turned out to be one file: a real 5719-line lock at `lockfileVersion: '9.0'` with 653 packages, every one of them invisible. Read through the subset from [ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md), which parsed it in 29 ms unchanged.
+- **`yarn.lock`:** still open, and still two formats behind one line — **yarn v1 is not YAML at all**, berry's is. No project here has either, so there is no evidence to design against and no reason to guess.
 - Go (`go.mod`, proxy.golang.org, OSV `Go`), Rust (`Cargo.toml`/`Cargo.lock`, crates.io, OSV `crates.io`), pre-commit hook pins, apt packages named in Dockerfiles, conda `environment.yml`.
 
 ### M7 — `propose` mode · size M · `planned`
@@ -222,6 +234,10 @@ Every `TODO` in the code gets a line here. There are none.
 - **Lock-file entries carry no line number**, only the file, because the TOML and JSON parsers do not report one. Findable by searching the text for the name, which is fragile; not worth it yet.
 - **`dist-info` directory names are trusted** for installed versions rather than the metadata inside them (ADR 0006). The documented layout, and what makes the lookup free.
 - **A project whose environment is in none of the usual places needs `--environment` passing once.** The brand-kit repository is this case. A config entry makes it permanent, but it has to be discovered first; the report's note is what makes that discoverable.
+
+From M6c (pnpm).
+- **Only `lockfileVersion: '9.0'` has been seen.** The reader recognises packages by shape rather than by version number, so an older `/name@version` key is read too and a future lock that keeps the shape will be; but v6 and earlier layouts are **unverified** — no project here has one.
+- **A pnpm lock gives no line numbers**, like every other lock file here, so a finding names the file alone.
 
 From M6b (pre-commit and YAML).
 - **A valid config using an anchor is now unreadable rather than unread**, so it exits 2 where it used to exit 0. Deliberate, and the trade the whole subset rests on; none of the five real files is affected. Revisit only with evidence that such a file exists in practice.

@@ -11,6 +11,7 @@ Everything below is unreleased: StockTake has not been published anywhere yet, a
 **The check itself**
 - Reads Python dependencies from Dockerfile `pip`/`uv`/`pipx` installs, `pyproject.toml`, `Pipfile`, `requirements*.txt`, `constraints*.txt`, and `uv.lock`, `pdm.lock`, `poetry.lock` and `Pipfile.lock`.
 - Reads npm dependencies from `package.json` and `package-lock.json` (both layouts), resolving declared ranges against `node_modules`, including dependencies hoisted to the top of a workspace.
+- Reads `pnpm-lock.yaml` through the same strict YAML subset, taking every package under `packages:`. A key the reader does not recognise makes the file unreadable rather than being passed over, because pnpm's layout has changed between major lock versions before.
 - Reads GitHub Actions pins from `.github/workflows/*.yml` and `action.yml`, taking the version from the conventional `# v4.1.1` comment when the ref is a commit SHA.
 - Reads hook pins from `.pre-commit-config.yaml`, by the same rules. The file is YAML, which StockTake reads with its own strict subset rather than a dependency: anything that subset does not implement makes the file unreadable and the run incomplete, instead of being quietly half-read. ([ADR 0013](docs/adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md))
 - Reads GitHub release downloads in Dockerfiles, resolving `${VERSION}` against the nearest earlier assignment.
