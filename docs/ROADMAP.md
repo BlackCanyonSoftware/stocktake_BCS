@@ -229,6 +229,16 @@ npm needed none: it already asks for `/<name>/latest` rather than the packument,
 
 The stored format is versioned, and a file written in the older shape is discarded rather than misread: entries are a cache, so throwing them away costs one cold run and reading them wrongly costs a wrong answer.
 
+### M9 — Ready to be published · size S · `done` (2026-11-12)
+**Goal.** Find what only breaks at publication, before publishing. The packaging itself turned out to be sound; the shop window did not.
+
+- **The README is also the PyPI page, and every link in it was broken there.** PyPI renders `README.md` against `pypi.org/project/stocktake/`, so all 28 repo-relative links resolved to pages that do not exist and both banner images to nothing at all — the first thing a visitor would have seen is two broken images. They are absolute now (`blob/main/` for files, `raw.githubusercontent.com` for the images), which renders correctly in both places. **`twine check` passes either way**: it validates that the description renders, not that anything in it points anywhere, which is exactly why this needed looking at rather than trusting the tool.
+- **`SECURITY.md`**, which a tool that reads other people's dependency files and talks to registries should not go public without. It names the private reporting route and is specific about what StockTake does (never executes what it finds, never edits a project file, only names and versions leave the machine), what it is not (not a code scanner, no advisory check for base images or release binaries), and what counts as a vulnerability in it — with "reports a project as clean when it is not" first, because that is the failure the whole design is arranged against.
+- **The CI matrix covers 3.14 and 3.15.** `requires-python = ">=3.11"` already lets pip install on them; the classifiers stop at 3.13 and stay there until the matrix is green, because a classifier is a claim and this one was never tested.
+- **A stale gap line retired.** The known-gaps list still said this repository's own Actions pins were unchecked. The workflows reader landed in M3 and all five are checked and current — a doc saying "we do not check X" when it does is a small inaccuracy, and it was the first line in the list.
+
+**Rehearsed, not assumed.** A wheel and sdist were built, `twine check` passed both, the wheel was installed into a clean 3.13 environment, and `stocktake --version`, `stocktake init` and the pytest plugin were all run from it: `init` wrote its two files and the generated test passed with the plugin active. `py.typed` ships, so the `Typing :: Typed` classifier is honest.
+
 ## Now
 
 ### M6 — More ecosystems · size L · `planned`
@@ -247,12 +257,15 @@ The roadmap framed the hard part as "what is the right target version"; `fix_tar
 ## Tech debt and known gaps
 Every `TODO` in the code gets a line here. There are none.
 
-- **This repository's own GitHub Actions pins are not checked.** `.github/workflows/ci.yml` pins `actions/checkout@v7` and `actions/setup-python@v7` by tag, and nothing watches them. Tracked in M3, which adds the reader and the manifest kind together.
 - **`role` is a bare string**, now with five values (`runtime`, `dev`, `image`, `locked`, and `ci` from M3). It wants to be an enum once M3 settles what the values actually are.
 - **A `requirements.txt`'s role is guessed from its filename.** `requirements-dev.txt` is treated as dev, `requirements.txt` as runtime. The format offers no other hint. Informational only: role changes nothing about whether a finding fails.
 - **Lock-file entries carry no line number**, only the file, because the TOML and JSON parsers do not report one. Findable by searching the text for the name, which is fragile; not worth it yet.
 - **`dist-info` directory names are trusted** for installed versions rather than the metadata inside them (ADR 0006). The documented layout, and what makes the lookup free.
 - **A project whose environment is in none of the usual places needs `--environment` passing once.** The brand-kit repository is this case. A config entry makes it permanent, but it has to be discovered first; the report's note is what makes that discoverable.
+
+From M9 (publishing).
+- **3.14 and 3.15 are in CI but not in the classifiers.** They go in when the matrix is green on them; until then the package under-advertises, which is the safe direction for a claim.
+- **The README's absolute links hard-code the repository's URL.** Renaming or moving the repository breaks them. The alternative — a second, PyPI-only description — drifts, which is worse.
 
 From M7 (propose).
 - **The edit is textual, not syntactic.** It rewrites one line, which is right for every format here — all of them put a version on one line — and would be wrong for one that spread a version across several. A future reader like that needs thinking about, not just adding.

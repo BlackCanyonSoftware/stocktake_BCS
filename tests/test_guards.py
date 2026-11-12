@@ -6,6 +6,7 @@ somebody adds something, which is the point.
 """
 
 import ast
+import re
 import sys
 import tomllib
 from pathlib import Path
@@ -83,3 +84,25 @@ def test_this_project_runs_its_own_check_through_its_own_plugin():
     settings = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert settings["tool"]["pytest"]["ini_options"].get("stocktake") is True, "this project should check itself through its own plugin"
     assert settings["project"]["entry-points"]["pytest11"]["stocktake"] == "stocktake.pytest_plugin"
+
+
+def test_the_readme_has_no_relative_link_because_it_is_also_the_pypi_page():
+    """PyPI renders README.md against `pypi.org/project/stocktake/`, where `docs/adr/...` is a 404 and a banner is a broken image.
+
+    All 28 links and both images were relative once, and `twine check` passed anyway: it validates that the description renders, not that
+    anything in it points anywhere. So the check has to live here.
+    """
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    links = re.findall(r"\[[^\]\n]+\]\((?!https?://|#|mailto:)([^)\s]+)\)", text)
+    images = re.findall(r'(?:src|srcset)="(?!https?://)([^"]+)"', text)
+    assert not links, f"relative links in the README would be dead on PyPI: {links}"
+    assert not images, f"relative images in the README would be broken on PyPI: {images}"
+
+
+def test_every_file_the_readme_links_into_this_repository_exists():
+    """An absolute link to our own repository is still a link that can rot; it just rots silently instead of obviously."""
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    prefix = "https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/"
+    # A link to a directory is fine: `docs/adr/` is the ADR index and GitHub renders it. The target just has to be there.
+    missing = [t for t in re.findall(rf"\(\s*{re.escape(prefix)}([^)\s#]+)", text) if not (ROOT / t).exists()]
+    assert not missing, f"the README links to files that are not here: {missing}"

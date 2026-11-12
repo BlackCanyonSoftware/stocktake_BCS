@@ -11,7 +11,7 @@ A dependency checker that drops into a project's own test suite. It reads what t
 ## Commands
 
 ```bash
-./.venv/Scripts/python -m pytest              # whole suite, incl. the live check (654 tests, ~6s)
+./.venv/Scripts/python -m pytest              # whole suite, incl. the live check (656 tests, ~7s)
 ./.venv/Scripts/python -m pytest -m "not network"
 ./.venv/Scripts/python -m ruff check .
 ./.venv/Scripts/python -m ruff format .

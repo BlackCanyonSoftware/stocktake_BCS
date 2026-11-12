@@ -1,9 +1,9 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)"
-            srcset="docs/brand/lockup/banner/lockup-horizontal-dark-banner.png">
+            srcset="https://raw.githubusercontent.com/BlackCanyonSoftware/stocktake_BCS/main/docs/brand/lockup/banner/lockup-horizontal-dark-banner.png">
     <img alt="StockTake" width="480"
-         src="docs/brand/lockup/banner/lockup-horizontal-light-banner.png">
+         src="https://raw.githubusercontent.com/BlackCanyonSoftware/stocktake_BCS/main/docs/brand/lockup/banner/lockup-horizontal-light-banner.png">
   </picture>
 </p>
 
@@ -25,7 +25,7 @@ VULNERABLE (fix these)
       GHSA-w74x-v6f9-j3xg MODERATE: fast-uri vulnerable to URI scheme spoofing via percent-encoded scheme decoding
 ```
 
-Exit codes: **0** nothing unsafe, and the project was checked · **1** something unsafe · **2** the check could not be completed — a registry was unreachable, a dependency file could not be read, or every dependency file found was of a kind StockTake has no reader for, so nothing is claimed either way ([ADR 0009](docs/adr/0009-an-unread-file-makes-the-run-incomplete.md), [ADR 0010](docs/adr/0010-a-run-that-checked-nothing-is-not-a-pass.md)).
+Exit codes: **0** nothing unsafe, and the project was checked · **1** something unsafe · **2** the check could not be completed — a registry was unreachable, a dependency file could not be read, or every dependency file found was of a kind StockTake has no reader for, so nothing is claimed either way ([ADR 0009](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/adr/0009-an-unread-file-makes-the-run-incomplete.md), [ADR 0010](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/adr/0010-a-run-that-checked-nothing-is-not-a-pass.md)).
 
 ---
 
@@ -109,7 +109,7 @@ Wherever the project already configures pytest works just as well — mind the s
 | `tox.ini` | `[pytest]` |
 | `setup.cfg` | `[tool:pytest]` — `[pytest]` here is an error pytest refuses |
 
-**Installing StockTake on its own changes nothing** about any test run until a project asks for it like this. That is deliberate ([ADR 0007](docs/adr/0007-the-pytest-plugin-is-opt-in.md)): a dependency that silently added a network-touching test to somebody's suite would be a bad guest.
+**Installing StockTake on its own changes nothing** about any test run until a project asks for it like this. That is deliberate ([ADR 0007](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/adr/0007-the-pytest-plugin-is-opt-in.md)): a dependency that silently added a network-touching test to somebody's suite would be a bad guest.
 
 | | |
 |---|---|
@@ -183,7 +183,7 @@ This is the route for a Node project, a Dockerfile-only repository, or anywhere 
     sarif_file: stocktake.sarif
 ```
 
-`|| [ $? -eq 1 ]` allows exit 1 — it found something, which is exactly what there is to upload — and still fails the step on exit 2. Do not write `|| true` here: it swallows 2 as well, and 2 is the code that means the report cannot be trusted ([ADR 0009](docs/adr/0009-an-unread-file-makes-the-run-incomplete.md)). `shell: bash` is not optional on a Windows runner: PowerShell 5.1 answers `The token '||' is not a valid statement separator in this version` and PowerShell 7 answers `ParserError: Missing type name after '['`. Both were reproduced locally on 2026-10-30. The findings then appear in the repository's code-scanning view on the lines they came from. Set `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` on the steps to raise GitHub's anonymous limit of 60 requests an hour. The job needs `permissions: security-events: write`.
+`|| [ $? -eq 1 ]` allows exit 1 — it found something, which is exactly what there is to upload — and still fails the step on exit 2. Do not write `|| true` here: it swallows 2 as well, and 2 is the code that means the report cannot be trusted ([ADR 0009](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/adr/0009-an-unread-file-makes-the-run-incomplete.md)). `shell: bash` is not optional on a Windows runner: PowerShell 5.1 answers `The token '||' is not a valid statement separator in this version` and PowerShell 7 answers `ParserError: Missing type name after '['`. Both were reproduced locally on 2026-10-30. The findings then appear in the repository's code-scanning view on the lines they came from. Set `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` on the steps to raise GitHub's anonymous limit of 60 requests an hour. The job needs `permissions: security-events: write`.
 
 For a project with no Python in it at all, this plus the vendored file are the two routes — and the vendored file needs no install step.
 
@@ -205,12 +205,12 @@ The decision is just the table above; the traps are these.
 2. **Do not change any dependency pin as part of adopting it.** StockTake reports; acting on a report is a separate, reviewed change.
 3. **`stocktake init` and `stocktake vendor` write files.** `init` refuses to overwrite without `--force`; `vendor` always overwrites, because refreshing the generated file is the point. Neither touches anything else.
 4. **Expect exit 1 on the first run of a real project.** It means it found something, not that the setup is broken. All five projects it has been run against had vulnerable dependencies.
-5. **Exit 2 means the report is not to be trusted** — a registry was unreachable, or a dependency file could not be read. In the second case the report names the file and what was wrong with it. If it is a file that is not really a manifest (a fixture, test data), `exclude` it; do not reach for `accept_unread`, which hides it while still walking it ([ADR 0009](docs/adr/0009-an-unread-file-makes-the-run-incomplete.md)).
+5. **Exit 2 means the report is not to be trusted** — a registry was unreachable, or a dependency file could not be read. In the second case the report names the file and what was wrong with it. If it is a file that is not really a manifest (a fixture, test data), `exclude` it; do not reach for `accept_unread`, which hides it while still walking it ([ADR 0009](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/adr/0009-an-unread-file-makes-the-run-incomplete.md)).
 6. **A project whose Python environment is not `./.venv`** needs `--environment PATH`, or an `environment` line in `.stocktake.toml`. Without it, dependencies declared as a range are reported as unpinned rather than checked — honestly, but uselessly. The report says so when this happens, and names the flag. A relative path means two different things on purpose: on the command line it is relative to where you are, and in the config file it is relative to the project root, because a path written into a project's own config means a path in that project.
 7. **A project with no `node_modules`** has its `package.json` ranges unresolved for the same reason. Run the install first, or read the lock file findings, which are unaffected.
 8. **Do not add `stocktake` to a project's *runtime* dependencies.** It is a development tool.
 9. **The cache** lives outside the project (`%LOCALAPPDATA%\stocktake` or `~/.cache/stocktake`), so nothing needs adding to `.gitignore`. It keeps only what was read rather than what was sent — a few dozen bytes per package, where the registry's own answer for a long-lived one runs to megabytes — so it stays small. Delete the directory whenever you like; the next run refills what it needs.
-10. **Read [AGENTS.md](AGENTS.md) instead of this section** if you are changing StockTake itself rather than using it. Different job, different rules.
+10. **Read [AGENTS.md](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/AGENTS.md) instead of this section** if you are changing StockTake itself rather than using it. Different job, different rules.
 
 ---
 
@@ -257,7 +257,7 @@ reason = "12.4 changes the PNG writer; rebuild the logo samples first"
 until = 2026-12-01
 ```
 
-An accepted package does **not** disappear. It gets its own `ACCEPTED` section listing every advisory being carried, a count in the headline and in the JSON, and a SARIF warning, and `--only vulnerable` still shows it — narrowing hides what needs no action, never risk. The one-line summary says "nothing unsafe **beyond what is accepted**", because the shorter phrase would not be true ([ADR 0011](docs/adr/0011-accepting-a-vulnerable-package.md)).
+An accepted package does **not** disappear. It gets its own `ACCEPTED` section listing every advisory being carried, a count in the headline and in the JSON, and a SARIF warning, and `--only vulnerable` still shows it — narrowing hides what needs no action, never risk. The one-line summary says "nothing unsafe **beyond what is accepted**", because the shorter phrase would not be true ([ADR 0011](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/adr/0011-accepting-a-vulnerable-package.md)).
 
 Every value is validated as it is read, **and so is every key**. An unknown ecosystem name is refused, and so is an unknown setting and an unknown policy kind: `excludes = [...]` is an error naming `exclude`, not a file with no excludes in it, and `[[policy.ignore_packages]]` is an error rather than no policy at all. A typo that silently switched half the check off would be the worst kind of failure for a file like this. If both files exist, `.stocktake.toml` wins and the report says which was used.
 
@@ -286,7 +286,7 @@ stocktake vendor .                     # write the core as one self-contained fi
 ### Proposing the fix
 
 `--format propose` prints the change each finding needs. **It never makes it** — StockTake does not edit a dependency with any flag, ever
-([ADR 0014](docs/adr/0014-propose-prints-an-edit-and-never-makes-one.md)). Pair it with `--only vulnerable`:
+([ADR 0014](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/adr/0014-propose-prints-an-edit-and-never-makes-one.md)). Pair it with `--only vulnerable`:
 
 ```text
 requirements.txt:2  pillow 9.0.0 -> 10.0.0
@@ -313,7 +313,7 @@ A tag you deliberately track is proposed at the precision you wrote. On `python:
 
 If you are gating on this from a script, two fields come before the findings:
 
-- **`complete`** — `false` when a registry could not be reached or a dependency file could not be read. **Check this first.** `failed: false` on its own cannot tell "this project is fine" from "this run did not manage to look", which is the whole point of [ADR 0009](docs/adr/0009-an-unread-file-makes-the-run-incomplete.md). `unreadable` lists each file and why, and is never narrowed by `--only`.
+- **`complete`** — `false` when a registry could not be reached or a dependency file could not be read. **Check this first.** `failed: false` on its own cannot tell "this project is fine" from "this run did not manage to look", which is the whole point of [ADR 0009](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/adr/0009-an-unread-file-makes-the-run-incomplete.md). `unreadable` lists each file and why, and is never narrowed by `--only`.
 - **`schema_version`** — `1` today, bumped when a key is removed or changes meaning. Adding a key does not bump it, so ignore the ones you do not know. `stocktake_version` is beside it.
 
 `counts` counts findings by status. `withdrawn_count` is separate and is the one to use for withdrawals: a release that is both withdrawn and vulnerable takes the more actionable status, so `counts.yanked` is not the number of withdrawn releases. `--only` narrows `findings` in every format, worst severity first. Every `source` is relative to the project root.
@@ -351,21 +351,21 @@ assert failure_text(report) is None
 
 **CI** (the `workflows` ecosystem)
 - `uses: owner/repo@ref` in `.github/workflows/*.yml` and `action.yml`, including reusable workflows
-- a full version tag is a pin; `@v7` is a **moving tag**, so only a major change counts as an update ([ADR 0008](docs/adr/0008-a-tag-its-publisher-moves-is-a-range.md)); a commit SHA takes its version from the conventional `# v4.1.1` comment beside it, and says so when there isn't one
+- a full version tag is a pin; `@v7` is a **moving tag**, so only a major change counts as an update ([ADR 0008](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/adr/0008-a-tag-its-publisher-moves-is-a-range.md)); a commit SHA takes its version from the conventional `# v4.1.1` comment beside it, and says so when there isn't one
 
 **Binaries** (the `binaries` ecosystem)
 - GitHub release downloads in Dockerfiles, resolving `${VERSION}` against the nearest earlier assignment
 
 **pre-commit** (the `precommit` ecosystem)
 - `repo` and `rev` pairs in `.pre-commit-config.yaml`, resolved as GitHub refs by the same rules the workflows reader uses
-- the file is YAML, which StockTake reads with its own strict subset rather than a dependency: a construct that subset does not implement makes the file **unreadable** and the run incomplete, rather than being quietly half-read ([ADR 0013](docs/adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md))
+- the file is YAML, which StockTake reads with its own strict subset rather than a dependency: a construct that subset does not implement makes the file **unreadable** and the run incomplete, rather than being quietly half-read ([ADR 0013](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md))
 - only GitHub-hosted hooks are resolved; `repo: local` and a hook hosted elsewhere are passed over
 
 **Containers** (the `containers` ecosystem)
 - `FROM image:tag` in Dockerfiles, on Docker Hub, `ghcr.io`, `mcr.microsoft.com` or any other registry speaking the OCI API
 - a variant is part of what is checked: `python:3.12-slim` is compared against other `-slim` tags, never against the newest tag of `python`, which would be telling you to move to an image that is not slim
-- `python:3.12` is a **moving tag** ([ADR 0008](docs/adr/0008-a-tag-its-publisher-moves-is-a-range.md)), so only a change at the precision you wrote counts as an update
-- a tag that names no version — `debian:bookworm-slim`, `latest`, a digest — is reported with the reason and never compared ([ADR 0012](docs/adr/0012-container-base-images.md))
+- `python:3.12` is a **moving tag** ([ADR 0008](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/adr/0008-a-tag-its-publisher-moves-is-a-range.md)), so only a change at the precision you wrote counts as an update
+- a tag that names no version — `debian:bookworm-slim`, `latest`, a digest — is reported with the reason and never compared ([ADR 0012](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/adr/0012-container-base-images.md))
 - a stage name in a multi-stage build is not an image, and `scratch` is not one either
 
 It asks [PyPI](https://pypi.org) for the newest release and for withdrawn ones, [npm](https://registry.npmjs.org), the GitHub releases API and the container registries for the newest version, and [OSV](https://osv.dev) for advisories against the exact version in use.
@@ -377,9 +377,9 @@ It asks [PyPI](https://pypi.org) for the newest release and for withdrawn ones, 
 - **A file that pins a version is checked at its pin** — a Dockerfile `==`, a lock file, a `requirements.txt` line with `==`, a bare `1.2.3` in `package.json`. That is what will be installed.
 - **A file that declares a range** — `pyproject.toml`, `Pipfile`, `requirements.txt` with `>=`, `package.json` with `^1.2.3` — says nothing about what is running, so it is checked at the version **actually installed**: the project's Python environment, or its `node_modules`.
 
-StockTake looks for the Python environment in this order: one you name with `--environment`, then the project's own `.venv` or `venv`, then the environment active in your shell when you are checking the current directory. If it cannot find one it says so and reports those dependencies as unpinned — it will not resolve them against some *other* environment, such as its own ([ADR 0006](docs/adr/0006-which-environment-an-installed-version-comes-from.md)).
+StockTake looks for the Python environment in this order: one you name with `--environment`, then the project's own `.venv` or `venv`, then the environment active in your shell when you are checking the current directory. If it cannot find one it says so and reports those dependencies as unpinned — it will not resolve them against some *other* environment, such as its own ([ADR 0006](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/adr/0006-which-environment-an-installed-version-comes-from.md)).
 
-**Not read yet:** container base images, `yarn.lock` and `pnpm-lock.yaml` (both need a YAML parser, and the core has no dependencies — but a yarn or pnpm project is still checked through its `package.json` and `node_modules`), Go, Rust, conda, pre-commit hooks. See [docs/ROADMAP.md](docs/ROADMAP.md) — and until a reader exists, a manifest of that kind is reported as **unread** rather than silently ignored, so you are never shown a clean report that quietly skipped half your project.
+**Not read yet:** container base images, `yarn.lock` and `pnpm-lock.yaml` (both need a YAML parser, and the core has no dependencies — but a yarn or pnpm project is still checked through its `package.json` and `node_modules`), Go, Rust, conda, pre-commit hooks. See [docs/ROADMAP.md](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/ROADMAP.md) — and until a reader exists, a manifest of that kind is reported as **unread** rather than silently ignored, so you are never shown a clean report that quietly skipped half your project.
 
 ---
 
@@ -396,7 +396,7 @@ StockTake looks for the Python environment in this order: one you name with `--e
 | `unknown` | not found, or that one answer could not be had | listed |
 | `current` | newest release, no known advisories | counted |
 
-**Being behind is not a failure.** A check that fails the build because a dependency is four months behind gets switched off within a week, and then it protects nothing. That is the decision the whole tool rests on ([ADR 0004](docs/adr/0004-only-unsafe-findings-fail-the-build.md)), and "it would be more thorough to fail on X" has been considered and rejected.
+**Being behind is not a failure.** A check that fails the build because a dependency is four months behind gets switched off within a week, and then it protects nothing. That is the decision the whole tool rests on ([ADR 0004](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/adr/0004-only-unsafe-findings-fail-the-build.md)), and "it would be more thorough to fail on X" has been considered and rejected.
 
 A registry that times out is `unknown` — never "clean". Advisory lists are merged and ranked, because raw ones are unreadable: one real package returned 90 OSV entries for a single pinned version. Aliases of the same problem become one entry, the worst five are shown with a count of the rest, and the single version that clears them all is named.
 
@@ -445,7 +445,7 @@ It has been run against five real projects — Python, Node, and mixed — total
 
 - On a 392-package Node project it agreed **exactly** with `npm audit`, as above.
 - Across the five it found vulnerable dependencies in every one, including `tar 6.2.1` with 12 advisories (one critical) and an `electron` with 46.
-- It found three of its own bugs that way, and only that way: ranges resolved against the wrong environment, a moving tag reported as outdated, and advice aimed at the wrong ecosystem. Each is fixed, each has a regression test, and the two that were decisions rather than slips are written up in [docs/adr/](docs/adr/).
+- It found three of its own bugs that way, and only that way: ranges resolved against the wrong environment, a moving tag reported as outdated, and advice aimed at the wrong ecosystem. Each is fixed, each has a regression test, and the two that were decisions rather than slips are written up in [docs/adr/](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/adr/).
 
 Which is the honest summary: **the false positives in this tool were found by using it, not by designing it**, so if you find another one, that is the expected way for it to improve.
 
@@ -467,19 +467,19 @@ Stated plainly, because they are decisions and not omissions:
 
 | | |
 |---|---|
-| [AGENTS.md](AGENTS.md) | for a person or AI **changing StockTake itself** |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | setting up, the boundaries, how to add an ecosystem, what must never change |
-| [CHANGELOG.md](CHANGELOG.md) | what changed |
-| [docs/PRD.md](docs/PRD.md) | what it is for, the user stories, the non-functional requirements |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | the shape, the module boundaries, how to add an ecosystem |
-| [docs/DESIGN.md](docs/DESIGN.md) | the report layout, statuses, exit codes, output states |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | what is built and what is next |
-| [docs/adr/](docs/adr/) | why it is built this way, including where a first attempt was wrong |
-| [docs/HANDOFF.md](docs/HANDOFF.md) | current state, for picking the work back up |
+| [AGENTS.md](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/AGENTS.md) | for a person or AI **changing StockTake itself** |
+| [CONTRIBUTING.md](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/CONTRIBUTING.md) | setting up, the boundaries, how to add an ecosystem, what must never change |
+| [CHANGELOG.md](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/CHANGELOG.md) | what changed |
+| [docs/PRD.md](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/PRD.md) | what it is for, the user stories, the non-functional requirements |
+| [docs/ARCHITECTURE.md](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/ARCHITECTURE.md) | the shape, the module boundaries, how to add an ecosystem |
+| [docs/DESIGN.md](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/DESIGN.md) | the report layout, statuses, exit codes, output states |
+| [docs/ROADMAP.md](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/ROADMAP.md) | what is built and what is next |
+| [docs/adr/](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/adr/) | why it is built this way, including where a first attempt was wrong |
+| [docs/HANDOFF.md](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/docs/HANDOFF.md) | current state, for picking the work back up |
 
 ## Licence
 
-The code is MIT. See [LICENSE](LICENSE). Contributions are welcome; [CONTRIBUTING.md](CONTRIBUTING.md) says how the pieces fit and which rules are not up for negotiation.
+The code is MIT. See [LICENSE](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/LICENSE). Contributions are welcome; [CONTRIBUTING.md](https://github.com/BlackCanyonSoftware/stocktake_BCS/blob/main/CONTRIBUTING.md) says how the pieces fit and which rules are not up for negotiation.
 
 The StockTake and Black Canyon Software marks in `docs/brand/` are **not** part of that grant. They are generated output from the brand kit, not source: refresh them with `brandkit bundle stocktake docs/brand --set readme` and verify them with `brandkit check stocktake docs/brand --set readme`, rather than editing them in place.
 

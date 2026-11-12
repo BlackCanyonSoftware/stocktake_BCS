@@ -41,6 +41,10 @@ Everything below is unreleased: StockTake has not been published anywhere yet, a
 - Policy entries that need a reason and a date, where an entry past its date fails the check until it is decided again. Three kinds: `ignore_advisories` for one advisory, `ignore_package` for a package at a version with every advisory against it, and `hold_back` for being out of date (which never suppresses a vulnerability).
 - An accepted vulnerability keeps its own `accepted` status and its own section listing every advisory being carried, counts in the headline, the summary and the JSON, and a SARIF warning. `--only` cannot narrow it away. ([ADR 0011](docs/adr/0011-accepting-a-vulnerable-package.md))
 
+**Before it goes anywhere**
+- A `SECURITY.md` with a private reporting route, what StockTake does and does not do, and what counts as a vulnerability in it.
+- Every link and image in the README is absolute, so the page PyPI renders is not a wall of dead links.
+
 **Keeping it honest**
 - Answers cached for six hours, shared across projects, keeping **only what was read**: a few dozen bytes per package, where a registry's own answer for a long-lived one runs to megabytes. A failed *connection* is retried once; a service that answered is not.
 - Only package names and versions leave the machine. Nothing in a project is ever modified, and nothing it finds is ever executed.

@@ -1,7 +1,7 @@
 # StockTake: handoff
 
 ## Current state
-**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1, M5.2 and M5.3** (the responses to the first two outside trial reports) **M6a, M6b and M6c** (container base images, pre-commit hook pins, pnpm lock files) **M7** (`propose` mode) and **M8** (the cache keeps what it reads). 654 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. **Nothing in any of the owner's projects is unread, and both planned milestones are done.** So the next session is the one decision M5 left to the owner (publish to PyPI), the next trial report, or the remaining tech-debt items. The cache size, which was the sharpest of them, is done. **The YAML question is settled** ([ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md)): a strict subset that refuses what it cannot read, and the parser is written and in use.
+**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1, M5.2 and M5.3** (the responses to the first two outside trial reports) **M6a, M6b and M6c** (container base images, pre-commit hook pins, pnpm lock files) **M7** (`propose` mode), **M8** (the cache keeps what it reads) and **M9** (ready to be published). 656 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. **Nothing in any of the owner's projects is unread, and both planned milestones are done.** So the next session is the one decision M5 left to the owner (publish to PyPI), the next trial report, or the remaining tech-debt items. The cache size, which was the sharpest of them, is done. **The YAML question is settled** ([ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md)): a strict subset that refuses what it cannot read, and the parser is written and in use.
 
 **It has been run against ten real projects** — well over two thousand dependencies, Python, Node and mixed — and found vulnerable dependencies in nearly every one. Three of its own bugs were found that way and only that way. Two more projects have been handed it cold and written down what happened: [Can-AI](feedback/2026-10-30-claude-code-session.md), which found three P0s, and [Pixel Galaxy Studio](feedback/2026-10-30-claude-code-windows-readme-cold-trial.md), which found none and instead found what the four untried adoption routes cost.
 
@@ -16,7 +16,7 @@ Pushed through `1b01058`, and CI passes on Windows and Ubuntu across Python 3.11
 ```bash
 py -3.11 -m venv .venv
 ./.venv/Scripts/python -m pip install -e ".[dev]"   # .venv/bin/python on macOS and Linux
-./.venv/Scripts/python -m pytest                    # 654 tests, ~6s (includes the live check, via the plugin)
+./.venv/Scripts/python -m pytest                    # 656 tests, ~7s (includes the live check, via the plugin)
 ./.venv/Scripts/stocktake vendor vendored/          # after ANY change to the core, or a test fails
 ./.venv/Scripts/python -m stocktake                 # check this project itself
 ```
@@ -51,7 +51,7 @@ The owner pushed through `1b01058` on 2026-10-30, and everything that could not 
 **One thing that first run showed:** the code-scanning job installed `-e .` without the dev extra, so this project's own dev dependencies had nothing to resolve against and arrived in the security tab as four `unpinned` notes about its own tooling — correct, and useless. The job now installs `.[dev]`. Four open alerts from that first run will be superseded by the next one.
 
 ## Work in progress
-None. M0 to M5, M5.1, M5.2, M5.3, M6a, M6b, M6c, M7 and M8 are complete. The rest of M6 is open and nothing is gated any more: the YAML decision is made and the parser exists. What is left needs evidence rather than a decision - `pnpm-lock.yaml` wants to be looked at before it is read (which of its layouts appear in practice), **yarn v1 is not YAML at all** so that line is two formats, and Go and Rust had no presence whatever in the owner's repositories when last counted.
+None. M0 to M5, M5.1, M5.2, M5.3, M6a, M6b, M6c, M7, M8 and M9 are complete. The rest of M6 is open and nothing is gated any more: the YAML decision is made and the parser exists. What is left needs evidence rather than a decision - `pnpm-lock.yaml` wants to be looked at before it is read (which of its layouts appear in practice), **yarn v1 is not YAML at all** so that line is two formats, and Go and Rust had no presence whatever in the owner's repositories when last counted.
 
 ## Next steps
 1. **One decision the owner has to make**, recorded in [ROADMAP.md](ROADMAP.md) under M5 and in the PRD's open questions: whether to publish to PyPI. The metadata is ready and the name was free on 2026-10-30. Not a coding task.
@@ -144,6 +144,22 @@ The owner has about ten repositories available for this, and the list is the mos
 In [PRD.md](PRD.md) under "Open questions". None block M1. The one worth deciding soonest: whether to publish `stocktake` to PyPI now (the name is free as of 2026-10-29) or wait until there are two real consumers.
 
 ## Session log
+### Session 18 - 2026-11-12
+A pass for what only breaks at publication. **The packaging turned out to be sound and the shop window did not.**
+
+The finding worth the session: **the README is also the PyPI page, and every link in it was broken there.** PyPI renders `README.md` against `pypi.org/project/stocktake/`, so all 28 repo-relative links resolved to pages that do not exist, and both banner images to nothing at all - the first thing a visitor would have met is two broken images above a wall of dead links. They are absolute now, `blob/main/` for files and `raw.githubusercontent.com` for the images, which renders correctly on GitHub too.
+
+**`twine check` passes either way**, which is the part to remember: it validates that the long description *renders*, not that anything in it points anywhere. The packaging tools cannot catch this and a guard test now does - `test_the_readme_has_no_relative_link_because_it_is_also_the_pypi_page`, plus one insisting every absolute link into this repository resolves to something that exists.
+
+Also in:
+- **`SECURITY.md`**, which a tool that reads other people's dependency files and talks to registries should not go public without. Private reporting route; what StockTake does (never executes what it finds, never edits a project file, only names and versions leave the machine); what it is not (not a code scanner, no advisory check for base images or release binaries); and what counts as a vulnerability in it, with "reports a project as clean when it is not" first.
+- **CI now covers 3.14 and 3.15.** `requires-python = ">=3.11"` already lets pip install on them. **The classifiers deliberately stop at 3.13 and stay there until that matrix is green**, because a classifier is a claim and this one has never been tested - only 3.11 and 3.13 are installed on this machine, so it could not be tested here.
+- **A stale gap line retired.** The known-gaps list still claimed this repository's own Actions pins were unchecked; the workflows reader landed in M3 and all five are checked and current. It was the first line in that list.
+
+**Rehearsed rather than assumed**: a wheel and sdist built, `twine check` passed both, the wheel installed into a clean Python 3.13 environment, and `stocktake --version`, `stocktake init` and the pytest plugin all run from it - `init` wrote its two files and the generated test passed with the plugin active. `py.typed` ships, so `Typing :: Typed` is honest. After the README change the built METADATA was re-read and carries no relative link or image.
+
+**What is left before publishing, for the owner:** the PyPI decision itself; turning the CHANGELOG's `Unreleased` into a version heading; and the README's "StockTake is not on PyPI" paragraph, which becomes wrong the moment it is. None of those is a coding task. A `CODE_OF_CONDUCT.md` is conventional for a public repository and was deliberately not written here, because it is a statement about how the owner wants to be dealt with rather than a technical gap. Committed locally; not pushed.
+
 ### Session 17 - 2026-11-12
 Two things: the verification Session 16 could not do, and the oldest tech-debt item.
 
