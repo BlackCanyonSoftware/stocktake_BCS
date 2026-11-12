@@ -158,7 +158,7 @@ Also in:
 
 **Rehearsed rather than assumed**: a wheel and sdist built, `twine check` passed both, the wheel installed into a clean Python 3.13 environment, and `stocktake --version`, `stocktake init` and the pytest plugin all run from it - `init` wrote its two files and the generated test passed with the plugin active. `py.typed` ships, so `Typing :: Typed` is honest. After the README change the built METADATA was re-read and carries no relative link or image.
 
-**What is left before publishing, for the owner:** the PyPI decision itself; turning the CHANGELOG's `Unreleased` into a version heading; and the README's "StockTake is not on PyPI" paragraph, which becomes wrong the moment it is. None of those is a coding task. A `CODE_OF_CONDUCT.md` is conventional for a public repository and was deliberately not written here, because it is a statement about how the owner wants to be dealt with rather than a technical gap. Committed locally; not pushed.
+**What is left before publishing, for the owner:** the PyPI decision itself; turning the CHANGELOG's `Unreleased` into a version heading; and the README's "StockTake is not on PyPI" paragraph, which becomes wrong the moment it is. None of those is a coding task. A `CODE_OF_CONDUCT.md` was added afterwards on the owner's say-so: the Contributor Covenant 2.1 rather than a bespoke one, so that anyone arriving already knows what they are agreeing to. **Reports go to `developer@blackcanyonsoftware.com`**, chosen because it is the project's own address and is already in every commit of a public repository; the owner's personal address was deliberately not used. Committed locally; not pushed.
 
 ### Session 17 - 2026-11-12
 Two things: the verification Session 16 could not do, and the oldest tech-debt item.

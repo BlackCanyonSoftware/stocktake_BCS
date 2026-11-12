@@ -108,3 +108,8 @@ Anything significant gets an [Architecture Decision Record](docs/adr/): context,
 ## Found a security problem?
 
 Do not open an issue for it. [SECURITY.md](SECURITY.md) has the private reporting route and says what counts as one.
+
+## Code of conduct
+
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) is the Contributor Covenant, so it says what you already expect it to. Reports go to
+developer@blackcanyonsoftware.com.
