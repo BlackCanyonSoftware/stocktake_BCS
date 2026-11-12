@@ -15,5 +15,6 @@
 | [0011](0011-accepting-a-vulnerable-package.md) | Accepting a vulnerable package, in one entry | accepted |
 | [0012](0012-container-base-images.md) | Container base images, and why a tag is not a version | accepted |
 | [0013](0013-a-strict-yaml-subset-rather-than-a-dependency.md) | A strict YAML subset, rather than a YAML dependency | accepted |
+| [0014](0014-propose-prints-an-edit-and-never-makes-one.md) | `propose` prints an edit and never makes one | accepted |
 
 One record per significant decision: context, options considered, decision, consequences. A superseded record is kept and marked, never deleted.

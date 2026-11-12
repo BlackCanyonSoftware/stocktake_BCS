@@ -18,9 +18,19 @@ from stocktake.check import incomplete_text, run_check
 from stocktake.config import CONFIG_NAME, DEFAULT_CACHE_TTL_HOURS, ConfigError
 from stocktake.init_project import FAILED, WRITTEN, init_project
 from stocktake.models import Report
+from stocktake.propose import proposals
 from stocktake.readers import InstalledFn
 from stocktake.registries import Cache, OfflineError, Registries
-from stocktake.report import FORMATS, ONLY_CHOICES, render_json, render_sarif, render_summary, render_text
+from stocktake.report import (
+    FORMATS,
+    ONLY_CHOICES,
+    render_json,
+    render_propose,
+    render_sarif,
+    render_summary,
+    render_text,
+    shown_statuses,
+)
 from stocktake.vendor import VENDORED_NAME, VendorError, write
 
 OK = 0
@@ -91,7 +101,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--format",
         choices=list(FORMATS),
         default="text",
-        help="text to read, json for another program, sarif for an editor or GitHub code scanning, summary for one line",
+        help="text to read, propose for the exact edit each finding would need, json for another program, "
+        "sarif for an editor or GitHub code scanning, summary for one line",
     )
     parser.add_argument(
         "--only",
@@ -112,7 +123,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _rendered(report: Report, args: argparse.Namespace) -> str:
+def _rendered(report: Report, args: argparse.Namespace, root: Path) -> str:
+    if args.format == "propose":
+        # The only format that opens project files again, to quote the line an edit would change. It still writes nothing (docs/adr/0014).
+        return render_propose(proposals(report, root, shown_statuses(args.only)))
     if args.format == "json":
         return render_json(report, args.only)
     if args.format == "sarif":
@@ -156,7 +170,7 @@ def run(
         print(f"stocktake: {exc}", file=sys.stderr)
         return INCOMPLETE
 
-    out(_rendered(report, args))
+    out(_rendered(report, args, project))
 
     # On stderr, so a `--format json` run stays machine-readable on stdout while a person watching the terminal is still told. Not for the
     # text format, which already prints the same words as an UNREADABLE section: under `2>&1` the two read as a stutter.

@@ -107,6 +107,33 @@ class Finding:
         return max((a.rank for a in self.advisories), default=0)
 
 
+# What a proposal is, in the three shapes it comes in.
+EDIT = "edit"  # a version written in a hand-kept file: show the line as it stands and as it would be
+COMMAND = "command"  # a generated lock, or a range resolved against the environment: show the command instead
+MANUAL = "manual"  # there is something to say and no edit to make, such as an advisory with no published fix
+
+
+@dataclass(frozen=True, slots=True)
+class Proposal:
+    """One thing to do about one finding, and where.
+
+    Vocabulary rather than behaviour, so that the module which works a proposal out (`propose.py`, which opens project files) and the one
+    that prints it (`report/propose.py`, which opens nothing) share a type without either importing the other.
+    """
+
+    finding: Finding
+    target: str  # the version to move to; empty when the proposal is MANUAL and names none
+    reason: str  # what the upgrade is for, in a few words
+    kind: str  # EDIT | COMMAND | MANUAL
+    path: str = ""
+    line: int = 0
+    before: str = ""  # EDIT: the line as it stands
+    after: str = ""  # EDIT: the line as it would be
+    command: str = ""  # COMMAND: what to run
+    link: str = ""
+    note: str = ""
+
+
 @dataclass(frozen=True, slots=True)
 class Unread:
     """Dependency manifests no registered reader understands, split by whether the project has said it knows."""

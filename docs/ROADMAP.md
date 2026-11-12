@@ -222,8 +222,10 @@ Each is one reader, one registry client, one guard test. The first two are carri
 - **`yarn.lock`:** still open, and still two formats behind one line — **yarn v1 is not YAML at all**, berry's is. No project here has either, so there is no evidence to design against and no reason to guess.
 - Go (`go.mod`, proxy.golang.org, OSV `Go`), Rust (`Cargo.toml`/`Cargo.lock`, crates.io, OSV `crates.io`), pre-commit hook pins, apt packages named in Dockerfiles, conda `environment.yml`.
 
-### M7 — `propose` mode · size M · `planned`
-Print the exact edit that would fix each finding, with a changelog or compare link. It never applies it. Needs a careful answer to "what is the right target version" per ecosystem; the advisory fix target already solves half of it.
+### M7 — `propose` mode · size M · `done` (2026-11-12)
+`--format propose` prints the exact change each actionable finding needs, and never makes it. [ADR 0014](adr/0014-propose-prints-an-edit-and-never-makes-one.md) has the reasoning.
+
+The roadmap framed the hard part as "what is the right target version"; `fix_target` had already answered that. **The real difficulty was that an edit is often the wrong answer**, and the shape of the feature is three kinds rather than one: a version kept by hand gets `- old` / `+ new`; a generated lock gets the command that regenerates it, because a hand-edited lock is one that disagrees with itself; a range resolved against the environment gets the upgrade command, because the file is not wrong. The safety property is that an edit is offered **only when the old version is found exactly once on its line** — an edit that is nearly right is worse than a sentence saying what to do.
 
 ## Tech debt and known gaps
 Every `TODO` in the code gets a line here. There are none.
@@ -234,6 +236,12 @@ Every `TODO` in the code gets a line here. There are none.
 - **Lock-file entries carry no line number**, only the file, because the TOML and JSON parsers do not report one. Findable by searching the text for the name, which is fragile; not worth it yet.
 - **`dist-info` directory names are trusted** for installed versions rather than the metadata inside them (ADR 0006). The documented layout, and what makes the lookup free.
 - **A project whose environment is in none of the usual places needs `--environment` passing once.** The brand-kit repository is this case. A config entry makes it permanent, but it has to be discovered first; the report's note is what makes that discoverable.
+
+From M7 (propose).
+- **The edit is textual, not syntactic.** It rewrites one line, which is right for every format here — all of them put a version on one line — and would be wrong for one that spread a version across several. A future reader like that needs thinking about, not just adding.
+- **A truncated moving tag is a convention, not a guarantee.** `python:3.12` is proposed `3.15` because the tag listing has it; a publisher shipping `3.15.2` and no `3.15` would be proposed a tag that does not exist. Proposing the full version instead is wrong far more often, for everyone deliberately tracking a line.
+- **No proposal is checked against a registry.** The fix target comes from the advisory's own `fixed` list, so it is as good as that data and no better; nothing asks whether the named release exists.
+- **`propose.py` re-opens files `scan` has already read.** Cheap, and a second place that knows a project file can be opened; the boundary keeping `report/` pure is now held by hand rather than by the structure.
 
 From M6c (pnpm).
 - **Only `lockfileVersion: '9.0'` has been seen.** The reader recognises packages by shape rather than by version number, so an older `/name@version` key is read too and a future lock that keeps the shape will be; but v6 and earlier layouts are **unverified** — no project here has one.

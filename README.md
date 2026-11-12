@@ -270,6 +270,7 @@ stocktake                              # the full report
 stocktake --only vulnerable            # just what must be fixed
 stocktake --only outdated              # what must be fixed, then what is behind
 stocktake --format summary             # one line, for a status bar or a CI step name
+stocktake --format propose             # the exact change each finding needs; it never makes it
 stocktake --format json                # for another program
 stocktake --format sarif               # for an editor, or GitHub code scanning
 stocktake --refresh                    # ignore the six-hour cache
@@ -281,6 +282,32 @@ stocktake vendor .                     # write the core as one self-contained fi
 ```
 
 `stocktake --help`, `stocktake init --help` and `stocktake vendor --help` are the full reference. `python -m stocktake` works too.
+
+### Proposing the fix
+
+`--format propose` prints the change each finding needs. **It never makes it** — StockTake does not edit a dependency with any flag, ever
+([ADR 0014](docs/adr/0014-propose-prints-an-edit-and-never-makes-one.md)). Pair it with `--only vulnerable`:
+
+```text
+requirements.txt:2  pillow 9.0.0 -> 10.0.0
+      clears 52 advisories (6 critical, 32 high, 12 moderate, 2 unrated)
+    - pillow==9.0.0
+    + pillow==10.0.0
+      https://pypi.org/project/pillow/10.0.0/
+
+package-lock.json  fast-uri 3.1.8 -> 3.1.9
+      clears 4 advisories (2 moderate, 2 low)
+      a lock file is generated
+    $ npm install fast-uri@3.1.9
+```
+
+An edit is printed only where the version is kept **by hand**. A generated lock gets the command that regenerates it, because a hand-edited
+lock is one that disagrees with itself; a `pyproject.toml` range gets the upgrade command, because the file is not wrong and the installed
+version is. And an edit is only offered when the old version is found exactly once on its line: an edit that is nearly right is worse than a
+sentence telling you what to do.
+
+A tag you deliberately track is proposed at the precision you wrote. On `python:3.12` you are told `3.15`, not `3.15.2`; on
+`actions/checkout@v2`, `@v7`.
 
 ### Reading the JSON
 

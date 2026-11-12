@@ -1,7 +1,7 @@
 # StockTake: handoff
 
 ## Current state
-**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1, M5.2 and M5.3** (the responses to the first two outside trial reports) and **M6a, M6b and M6c**, container base images, pre-commit hook pins and pnpm lock files. 624 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. **Nothing in any of the owner's projects is unread any more** - a census after this session found no reported unread manifest anywhere. So the next session is no longer about coverage: it is M7 (`propose` mode), the one decision M5 left to the owner, the next trial report, or the tech-debt items, of which the cache size is now the sharpest. **The YAML question is settled** ([ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md)): a strict subset that refuses what it cannot read, and the parser is written and in use.
+**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1, M5.2 and M5.3** (the responses to the first two outside trial reports) **M6a, M6b and M6c** (container base images, pre-commit hook pins, pnpm lock files) and **M7**, `propose` mode. 648 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. **Nothing in any of the owner's projects is unread, and both planned milestones are done.** So the next session is the one decision M5 left to the owner (publish to PyPI), the next trial report, or the tech-debt items - of which the cache size is the sharpest, now that one container tag listing is 89 KB. **The YAML question is settled** ([ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md)): a strict subset that refuses what it cannot read, and the parser is written and in use.
 
 **It has been run against ten real projects** — well over two thousand dependencies, Python, Node and mixed — and found vulnerable dependencies in nearly every one. Three of its own bugs were found that way and only that way. Two more projects have been handed it cold and written down what happened: [Can-AI](feedback/2026-10-30-claude-code-session.md), which found three P0s, and [Pixel Galaxy Studio](feedback/2026-10-30-claude-code-windows-readme-cold-trial.md), which found none and instead found what the four untried adoption routes cost.
 
@@ -16,7 +16,7 @@ Pushed through `1b01058`, and CI passes on Windows and Ubuntu across Python 3.11
 ```bash
 py -3.11 -m venv .venv
 ./.venv/Scripts/python -m pip install -e ".[dev]"   # .venv/bin/python on macOS and Linux
-./.venv/Scripts/python -m pytest                    # 624 tests, ~7s (includes the live check, via the plugin)
+./.venv/Scripts/python -m pytest                    # 648 tests, ~7s (includes the live check, via the plugin)
 ./.venv/Scripts/stocktake vendor vendored/          # after ANY change to the core, or a test fails
 ./.venv/Scripts/python -m stocktake                 # check this project itself
 ```
@@ -51,7 +51,7 @@ The owner pushed through `1b01058` on 2026-10-30, and everything that could not 
 **One thing that first run showed:** the code-scanning job installed `-e .` without the dev extra, so this project's own dev dependencies had nothing to resolve against and arrived in the security tab as four `unpinned` notes about its own tooling — correct, and useless. The job now installs `.[dev]`. Four open alerts from that first run will be superseded by the next one.
 
 ## Work in progress
-None. M0 to M5, M5.1, M5.2, M5.3, M6a, M6b and M6c are complete. The rest of M6 is open and nothing is gated any more: the YAML decision is made and the parser exists. What is left needs evidence rather than a decision - `pnpm-lock.yaml` wants to be looked at before it is read (which of its layouts appear in practice), **yarn v1 is not YAML at all** so that line is two formats, and Go and Rust had no presence whatever in the owner's repositories when last counted.
+None. M0 to M5, M5.1, M5.2, M5.3, M6a, M6b, M6c and M7 are complete. The rest of M6 is open and nothing is gated any more: the YAML decision is made and the parser exists. What is left needs evidence rather than a decision - `pnpm-lock.yaml` wants to be looked at before it is read (which of its layouts appear in practice), **yarn v1 is not YAML at all** so that line is two formats, and Go and Rust had no presence whatever in the owner's repositories when last counted.
 
 ## Next steps
 1. **One decision the owner has to make**, recorded in [ROADMAP.md](ROADMAP.md) under M5 and in the PRD's open questions: whether to publish to PyPI. The metadata is ready and the name was free on 2026-10-30. Not a coding task.
@@ -144,6 +144,23 @@ The owner has about ten repositories available for this, and the list is the mos
 In [PRD.md](PRD.md) under "Open questions". None block M1. The one worth deciding soonest: whether to publish `stocktake` to PyPI now (the name is free as of 2026-10-29) or wait until there are two real consumers.
 
 ## Session log
+### Session 16 - 2026-11-12
+Built M7, `--format propose`: the exact change each actionable finding needs, printed and never made.
+
+**The roadmap had the hard part in the wrong place.** It framed M7 as needing "a careful answer to what is the right target version per ecosystem", and `advisories.fix_target` had already answered that. The real difficulty is that **an edit is frequently the wrong answer**, and a tool printing `- old / + new` for everything would confidently tell people to hand-edit generated files. So the feature is three kinds, chosen by where the version actually lives ([ADR 0014](adr/0014-propose-prints-an-edit-and-never-makes-one.md)):
+
+- kept by hand (a requirements pin, a Dockerfile `FROM` or `pip install`, a workflow `uses:`, a pre-commit `rev`) -> the line as it stands and as it would be;
+- a generated lock -> the command that regenerates it, because a hand-edited lock is one that disagrees with itself: the version changes and the integrity hash, the resolved URL and the tree below it do not;
+- a range resolved against the environment -> the upgrade command, because `pyproject.toml` saying `pillow>=8` is not wrong when the installed pillow is old.
+
+The safety property worth not losing: **an edit is offered only when the old version is found exactly once on its line**, matching the longest token that identifies the dependency (`pillow==9.0.0` before `==9.0.0`), so a second package pinned at the same version on one `RUN pip install` line cannot be hit. Otherwise it falls back to a command or a sentence. An edit that is nearly right is worse than a sentence saying what to do.
+
+A moving tag is proposed at the precision the project wrote - `python:3.12` is told `3.15`, not `3.15.2`; `actions/checkout@v2` is told `@v7`. This is the one place the written form matters more than the resolved one, because the output is literally the text to type.
+
+624 -> 648 tests, including one that fingerprints every file in a project, runs propose over it, and insists nothing changed.
+
+**Verified live for PyPI and Docker**: against real registries a scratch project produced correct edits for a `requirements.txt` pin, a Dockerfile `pip install` line and `FROM python:3.12-slim -> 3.15-slim`, and on `DayandNight_BCS` every vulnerable finding is in a lock file and correctly came out as `npm install ...@...` rather than a hand edit, with `git status` there left empty. **Not verified live for GitHub-backed pins** (workflows, pre-commit): `api.github.com` was failing TLS verification throughout this session, so those findings were `unknown` and propose correctly offered nothing for them. That path is covered by unit tests with a fake network and **has not been run against the real registry** - worth a minute next session, since it is the one path where the edit keeps a `v` prefix and an `@`. Committed locally; not pushed.
+
 ### Session 15 - 2026-11-08
 Read `pnpm-lock.yaml`, which was the last manifest kind still unread in any of the owner's projects.
 

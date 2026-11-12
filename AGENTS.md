@@ -11,7 +11,7 @@ A dependency checker that drops into a project's own test suite. It reads what t
 ## Commands
 
 ```bash
-./.venv/Scripts/python -m pytest              # whole suite, incl. the live check (624 tests, ~7s)
+./.venv/Scripts/python -m pytest              # whole suite, incl. the live check (648 tests, ~7s)
 ./.venv/Scripts/python -m pytest -m "not network"
 ./.venv/Scripts/python -m ruff check .
 ./.venv/Scripts/python -m ruff format .
@@ -36,12 +36,13 @@ src/stocktake/
   scan.py          walking the tree, unread manifests, and which environment "installed" means
   evaluate.py      the judgement: Dep[] + registry answers -> Report. Pure given a Registries.
   check.py         one whole run, the fail/warn/skip rules, and assert_safe. THE RULES LIVE HERE ONCE.
+  propose.py       the edit a finding needs, worked out and NEVER made. Opens project files; writes none.
   cli.py           argparse, exit codes, the init and vendor subcommands. The only module that prints.
   readers/         project files -> Dep[]. NEVER touch the network. yamlish.py is a shared grammar, not a
                    reader: a strict YAML subset that REFUSES what it cannot read rather than guessing (ADR 0013)
   registries/      names -> versions and advisories. NEVER touch the project. oci.py is the only one that
                    needs a credential to read something public, and gets it by the registry's own handshake
-  report/          pure functions of a Report: text, json, sarif, summary
+  report/          pure functions: text, propose, json, sarif, summary. Opens nothing.
   pytest_plugin.py the opt-in check as one pytest item. The only module that imports pytest.
   vendor.py        generates the single-file copy; refuses rather than emitting something wrong
 vendored/          the generated copy, committed so a test can prove it is current

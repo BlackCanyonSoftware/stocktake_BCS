@@ -29,7 +29,8 @@ Everything below is unreleased: StockTake has not been published anywhere yet, a
 - Recognises a release tag prefixed with the project's name, such as `jq-1.6`.
 
 **Using it**
-- `stocktake`, with `--only`, `--format text|json|sarif|summary`, `--root`, `--config`, `--environment`, `--refresh`, `--all-advisories`.
+- `stocktake`, with `--only`, `--format text|propose|json|sarif|summary`, `--root`, `--config`, `--environment`, `--refresh`, `--all-advisories`.
+- `--format propose`: the exact change each actionable finding needs, and never making it. A version kept by hand gets the line as it stands and as it would be; a generated lock gets the command that regenerates it; a range resolved against the environment gets the upgrade command. A tag you track is proposed at the precision you wrote. ([ADR 0014](docs/adr/0014-propose-prints-an-edit-and-never-makes-one.md))
 - A pytest plugin, **off until a project asks for it** with `stocktake = true` or `--stocktake`. It fails, warns and skips by the same rules as the command line, because both go through the same code.
 - `stocktake init`, which writes a four-line test file and a commented `.stocktake.toml`, and overwrites nothing.
 - `stocktake vendor`, which writes the whole core as one self-contained file for a project that cannot take a dependency. It carries `assert_safe(root)`, one call that raises with the whole report, for a project driving the check from a plain script.
