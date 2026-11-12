@@ -54,6 +54,14 @@ class FetchFn(Protocol):
 
 ClockFn = Callable[[], float]
 
+# What a client keeps out of a registry's answer. Applied once, before the answer is stored, so the cache holds what was read rather than
+# what was sent: PyPI's document lists every file of every release and a container registry's tag listing ran to 89 KB for one image.
+KeepFn = Callable[[Any], Any]
+
+# Bumped when what is stored changes shape. An older file is discarded rather than misread: the entries are a cache, so the cost of throwing
+# them away is one cold run, and the cost of reading them wrongly is a wrong answer.
+CACHE_FORMAT = 2
+
 
 class OfflineError(RuntimeError):
     """The service could not be reached at all."""
@@ -156,18 +164,25 @@ class Cache:
             loaded = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return  # absent or damaged: start empty rather than fail. A cache is never load-bearing.
-        if isinstance(loaded, dict):
-            self.entries = loaded
+        if isinstance(loaded, dict) and loaded.get("format") == CACHE_FORMAT and isinstance(loaded.get("entries"), dict):
+            self.entries = loaded["entries"]
 
     def _key(self, url: str, body: dict[str, Any] | None) -> str:
         if body is None:
             return url
         return url + hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]
 
-    def get(self, url: str, body: dict[str, Any] | None = None, headers: Mapping[str, str] | None = None) -> Any:
+    def get(
+        self,
+        url: str,
+        body: dict[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
+        keep: KeepFn | None = None,
+    ) -> Any:
         """The cached answer if it is fresh enough, otherwise one request. Exceptions are not cached.
 
-        `headers` is passed on but is deliberately **not** part of the key. It says who is asking, never what is being asked for: the tag
+        `keep` reduces an answer to the part this caller reads, before it is stored. `headers` is passed on but is deliberately **not** part
+        of the key. It says who is asking, never what is being asked for: the tag
         list of a public image is the same document whichever bearer token fetched it, and keying on the token would mean a cache that
         missed every run, since the token is new each time.
         """
@@ -176,8 +191,11 @@ class Cache:
         if hit and not self.refresh and self.now() - hit["t"] < self.ttl:
             return hit["data"]
         data = self.fetch(url, body, headers)
-        self.entries[key] = {"t": self.now(), "data": data}
-        return data
+        # Reduced before it is stored *and* returned, so a hit and a miss hand the caller the same shape. A client that passes `keep` must
+        # therefore read the reduced shape, which is the point: nothing downstream can come to depend on a field nobody kept.
+        kept = keep(data) if keep is not None and data is not None else data
+        self.entries[key] = {"t": self.now(), "data": kept}
+        return kept
 
     def once(self, url: str, headers: Mapping[str, str] | None = None) -> Any:
         """One request whose answer is deliberately not kept.
@@ -195,7 +213,7 @@ class Cache:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             temporary = self.path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(self.entries), encoding="utf-8")
+            temporary.write_text(json.dumps({"format": CACHE_FORMAT, "entries": self.entries}), encoding="utf-8")
             temporary.replace(self.path)
         except OSError:
             pass

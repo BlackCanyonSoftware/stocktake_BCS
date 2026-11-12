@@ -11,7 +11,7 @@ A dependency checker that drops into a project's own test suite. It reads what t
 ## Commands
 
 ```bash
-./.venv/Scripts/python -m pytest              # whole suite, incl. the live check (648 tests, ~7s)
+./.venv/Scripts/python -m pytest              # whole suite, incl. the live check (654 tests, ~6s)
 ./.venv/Scripts/python -m pytest -m "not network"
 ./.venv/Scripts/python -m ruff check .
 ./.venv/Scripts/python -m ruff format .
@@ -81,6 +81,7 @@ One module in `readers/`, one in `registries/`, an import line in each `__init__
 - **It never executes anything it found.** No importing a scanned package, no lockfile scripts, no shelling out to a package manager.
 - **Only package names and versions leave the machine.** No paths, no file contents, no telemetry.
 - **A registry that cannot be reached is `unknown`, never clean.**
+- **A registry client caches what it reads, not what it was sent.** Pass `keep` to `Cache.get`; PyPI's answer for one package is 3.5 MB and 37 bytes of it are read. A client that starts reading a new field must bump `CACHE_FORMAT`, because older entries will not have it.
 - **Only unsafe findings fail a build**; being behind warns ([ADR 0004](docs/adr/0004-only-unsafe-findings-fail-the-build.md)). "It would be more thorough to fail on X" has been considered and rejected.
 - **A suppression is never a silence.** A policy entry may stop something failing the build; it may never stop it being reported. An accepted package lists every advisory it is carrying, in every format, and `--only` cannot narrow it away ([ADR 0011](docs/adr/0011-accepting-a-vulnerable-package.md)).
 - **The runtime core depends on nothing.** A test enforces it.

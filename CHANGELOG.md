@@ -42,7 +42,7 @@ Everything below is unreleased: StockTake has not been published anywhere yet, a
 - An accepted vulnerability keeps its own `accepted` status and its own section listing every advisory being carried, counts in the headline, the summary and the JSON, and a SARIF warning. `--only` cannot narrow it away. ([ADR 0011](docs/adr/0011-accepting-a-vulnerable-package.md))
 
 **Keeping it honest**
-- Answers cached for six hours, shared across projects. A failed *connection* is retried once; a service that answered is not.
+- Answers cached for six hours, shared across projects, keeping **only what was read**: a few dozen bytes per package, where a registry's own answer for a long-lived one runs to megabytes. A failed *connection* is retried once; a service that answered is not.
 - Only package names and versions leave the machine. Nothing in a project is ever modified, and nothing it finds is ever executed.
 - No runtime dependencies at all, enforced by a test.
 

@@ -890,6 +890,14 @@ class FetchFn(Protocol):
 
 ClockFn = Callable[[], float]
 
+# What a client keeps out of a registry's answer. Applied once, before the answer is stored, so the cache holds what was read rather than
+# what was sent: PyPI's document lists every file of every release and a container registry's tag listing ran to 89 KB for one image.
+KeepFn = Callable[[Any], Any]
+
+# Bumped when what is stored changes shape. An older file is discarded rather than misread: the entries are a cache, so the cost of throwing
+# them away is one cold run, and the cost of reading them wrongly is a wrong answer.
+CACHE_FORMAT = 2
+
 
 class OfflineError(RuntimeError):
     """The service could not be reached at all."""
@@ -992,18 +1000,25 @@ class Cache:
             loaded = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return  # absent or damaged: start empty rather than fail. A cache is never load-bearing.
-        if isinstance(loaded, dict):
-            self.entries = loaded
+        if isinstance(loaded, dict) and loaded.get("format") == CACHE_FORMAT and isinstance(loaded.get("entries"), dict):
+            self.entries = loaded["entries"]
 
     def _key(self, url: str, body: dict[str, Any] | None) -> str:
         if body is None:
             return url
         return url + hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]
 
-    def get(self, url: str, body: dict[str, Any] | None = None, headers: Mapping[str, str] | None = None) -> Any:
+    def get(
+        self,
+        url: str,
+        body: dict[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
+        keep: KeepFn | None = None,
+    ) -> Any:
         """The cached answer if it is fresh enough, otherwise one request. Exceptions are not cached.
 
-        `headers` is passed on but is deliberately **not** part of the key. It says who is asking, never what is being asked for: the tag
+        `keep` reduces an answer to the part this caller reads, before it is stored. `headers` is passed on but is deliberately **not** part
+        of the key. It says who is asking, never what is being asked for: the tag
         list of a public image is the same document whichever bearer token fetched it, and keying on the token would mean a cache that
         missed every run, since the token is new each time.
         """
@@ -1012,8 +1027,11 @@ class Cache:
         if hit and not self.refresh and self.now() - hit["t"] < self.ttl:
             return hit["data"]
         data = self.fetch(url, body, headers)
-        self.entries[key] = {"t": self.now(), "data": data}
-        return data
+        # Reduced before it is stored *and* returned, so a hit and a miss hand the caller the same shape. A client that passes `keep` must
+        # therefore read the reduced shape, which is the point: nothing downstream can come to depend on a field nobody kept.
+        kept = keep(data) if keep is not None and data is not None else data
+        self.entries[key] = {"t": self.now(), "data": kept}
+        return kept
 
     def once(self, url: str, headers: Mapping[str, str] | None = None) -> Any:
         """One request whose answer is deliberately not kept.
@@ -1031,7 +1049,7 @@ class Cache:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             temporary = self.path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(self.entries), encoding="utf-8")
+            temporary.write_text(json.dumps({"format": CACHE_FORMAT, "entries": self.entries}), encoding="utf-8")
             temporary.replace(self.path)
         except OSError:
             pass
@@ -2171,6 +2189,7 @@ tracked as later work (docs/ROADMAP.md, M6).
 
 
 
+
 class GitHub:
     ecosystem = "GitHub"
     URL = "https://api.github.com/repos/{repo}/releases/latest"
@@ -2178,10 +2197,16 @@ class GitHub:
     def __init__(self, cache: Cache) -> None:
         self.cache = cache
 
+    @staticmethod
+    def keep(data: Any) -> dict[str, Any] | None:
+        """The tag, out of a release document that also carries its whole body text and every uploaded asset."""
+        tag = data.get("tag_name") if isinstance(data, dict) else None
+        return {"tag_name": str(tag)} if tag else None
+
     def latest(self, name: str) -> Versions | None:
         """`name` is `owner/repo`. None when there is no repository, or no release at all."""
-        data = self.cache.get(self.URL.format(repo=name))
-        if not data or not data.get("tag_name"):
+        data = self.cache.get(self.URL.format(repo=name), keep=self.keep)
+        if not data:
             return None
         return Versions(latest=str(data["tag_name"]).removeprefix("v"))
 
@@ -2286,19 +2311,39 @@ class OCI:
     def __init__(self, cache: Cache) -> None:
         self.cache = cache
 
-    def _tags(self, registry: str, repository: str) -> list[str] | None:
-        """Every tag the registry lists for the repository, getting a token first only if told to."""
-        url = TAGS_URL.format(registry=registry, repository=quote(repository, safe="/"))
-        try:
-            data = self.cache.get(url)
-        except Unauthorized:
-            token = self._token(registry, repository)
-            data = self.cache.get(url, headers={"Authorization": f"Bearer {token}"})
-        if not data:
+    @staticmethod
+    def keep(data: Any) -> dict[str, Any] | None:
+        """The newest version of each variant, out of a listing that ran to 4117 tags for one image.
+
+        This is the whole of what is ever read. `latest` is asked about one variant and takes the largest version in it, so a map from
+        variant to its newest version loses nothing and turns 89 KB of cache into a few hundred bytes. Tags that name no version -- a
+        codename, `latest`, an alpha -- are dropped here for the same reason: they are never an answer.
+        """
+        if not isinstance(data, dict):
             return None
         tags = data.get("tags")
-        # A repository that exists with no tags at all answers `{"tags": null}`, which is not the same as no such repository.
-        return [str(tag) for tag in tags] if isinstance(tags, list) else []
+        # A repository that exists with no tags answers `{"tags": null}`, which is not the same as no such repository: an empty map, not None.
+        newest: dict[str, str] = {}
+        for tag in tags if isinstance(tags, list) else []:
+            parts = container_tag(str(tag))
+            if parts is None:
+                continue
+            version, variant = parts
+            if variant not in newest or release_tuple(version) > release_tuple(newest[variant]):
+                newest[variant] = version
+        return {"newest": newest}
+
+    def _newest(self, registry: str, repository: str) -> dict[str, str] | None:
+        """The newest version of every variant this repository publishes, getting a token first only if told to."""
+        url = TAGS_URL.format(registry=registry, repository=quote(repository, safe="/"))
+        try:
+            data = self.cache.get(url, keep=self.keep)
+        except Unauthorized:
+            token = self._token(registry, repository)
+            data = self.cache.get(url, headers={"Authorization": f"Bearer {token}"}, keep=self.keep)
+        if not data:
+            return None
+        return dict(data.get("newest") or {})
 
     def _token(self, registry: str, repository: str) -> str:
         host, service = TOKEN_HOSTS.get(registry, (registry, registry))
@@ -2317,18 +2362,11 @@ class OCI:
         """
         reference, variant = split_variant(name)
         registry, repository = split_reference(reference)
-        tags = self._tags(registry, repository)
-        if tags is None:
+        newest = self._newest(registry, repository)
+        if newest is None:
             return None
-
-        candidates = []
-        for tag in tags:
-            parts = container_tag(tag)
-            if parts is not None and parts[1] == variant:
-                candidates.append(parts[0])
-        if not candidates:
-            return None
-        return Versions(latest=max(candidates, key=release_tuple))
+        found = newest.get(variant)
+        return Versions(latest=found) if found else None
 
 # ======================================================================================================================
 # stocktake.registries.osv
@@ -2422,6 +2460,7 @@ still installable, and calling that withdrawn would be a false failure.
 
 
 
+
 class PyPI:
     ecosystem = "PyPI"
     URL = "https://pypi.org/pypi/{name}/json"
@@ -2429,13 +2468,28 @@ class PyPI:
     def __init__(self, cache: Cache) -> None:
         self.cache = cache
 
-    def latest(self, name: str) -> Versions | None:
-        data = self.cache.get(self.URL.format(name=normalize(name)))
-        if not data:
+    @staticmethod
+    def keep(data: Any) -> dict[str, Any] | None:
+        """The two things read, out of a document that lists every file of every release.
+
+        PyPI's answer for a long-lived package runs to hundreds of kilobytes of filenames, hashes and upload dates. None of it is read
+        twice, so none of it is worth keeping: the cache holds the newest version and which releases are wholly yanked, and nothing else.
+        """
+        if not isinstance(data, dict) or "info" not in data:
             return None
         releases = data.get("releases") or {}
-        withdrawn = frozenset(version for version, files in releases.items() if files and all(f.get("yanked") for f in files))
-        return Versions(latest=str(data["info"]["version"]), withdrawn=withdrawn)
+        return {
+            "latest": str(data["info"]["version"]),
+            # Withdrawn only when *every* file in the release is yanked: one yanked wheel beside a good sdist is still installable, and
+            # calling that withdrawn would be a false failure.
+            "withdrawn": sorted(version for version, files in releases.items() if files and all(f.get("yanked") for f in files)),
+        }
+
+    def latest(self, name: str) -> Versions | None:
+        data = self.cache.get(self.URL.format(name=normalize(name)), keep=self.keep)
+        if not data:
+            return None
+        return Versions(latest=str(data["latest"]), withdrawn=frozenset(data.get("withdrawn") or ()))
 
 # ======================================================================================================================
 # stocktake.report.json

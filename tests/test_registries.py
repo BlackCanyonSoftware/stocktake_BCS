@@ -11,7 +11,7 @@ from urllib.error import HTTPError, URLError
 import pytest
 
 from stocktake.models import Advisory
-from stocktake.registries import Cache, GitHub, Npm, OfflineError, PyPI, RateLimited, Versions, default_fetch
+from stocktake.registries import OCI, Cache, GitHub, Npm, OfflineError, PyPI, RateLimited, Versions, default_fetch
 from stocktake.registries.http import RETRY_ATTEMPTS
 from stocktake.registries.osv import OSV
 
@@ -339,3 +339,59 @@ def test_the_facade_routes_by_ecosystem_and_says_which_it_knows(tmp_path):
 
 def test_an_ecosystem_with_no_client_answers_none_rather_than_raising(tmp_path):
     assert registries(tmp_path, FakeNet()).latest("Hackage", "aeson") is None
+
+
+# ---------- the cache keeps what is read, not what was returned ----------
+def test_the_cache_stores_only_what_the_client_kept(tmp_path):
+    """A PyPI document lists every file of every release and two fields are read; a tag listing ran to 4117 tags for one image."""
+    fat = {"info": {"version": "2.0"}, "releases": {"1.0": [{"yanked": False, "filename": "x" * 500}], "2.0": [{"yanked": False}]}}
+    net = FakeNet()
+    net.pypi = {}
+
+    def fetch(url, body=None, headers=None):
+        return fat
+
+    cache = Cache(fetch=fetch, path=tmp_path / "c.json", now=lambda: 1000.0)
+    assert PyPI(cache).latest("thing") == Versions(latest="2.0")
+    (entry,) = cache.entries.values()
+    assert entry["data"] == {"latest": "2.0", "withdrawn": []}
+    assert "filename" not in json.dumps(entry["data"]), "nothing that is never read survived into the cache"
+
+
+def test_a_hit_and_a_miss_hand_back_the_same_thing(tmp_path):
+    """The reduction happens before the answer is stored *and* returned, so nothing downstream can depend on the raw shape."""
+    fat = {"info": {"version": "2.0"}, "releases": {"1.0": [{"yanked": True}]}}
+    calls: list[str] = []
+
+    def fetch(url, body=None, headers=None):
+        calls.append(url)
+        return fat
+
+    cache = Cache(fetch=fetch, path=tmp_path / "c.json", now=lambda: 1000.0)
+    first = PyPI(cache).latest("thing")
+    second = PyPI(cache).latest("thing")
+    assert first == second == Versions(latest="2.0", withdrawn=frozenset({"1.0"}))
+    assert len(calls) == 1, "the second answer came from the cache"
+
+
+def test_a_cache_written_in_an_older_shape_is_discarded_rather_than_misread(tmp_path):
+    """Entries are a cache: throwing them away costs one cold run, and reading them wrongly costs a wrong answer."""
+    path = tmp_path / "c.json"
+    path.write_text(json.dumps({"https://pypi.org/pypi/x/json": {"t": 1000.0, "data": {"info": {"version": "1.0"}}}}), encoding="utf-8")
+    assert Cache(fetch=lambda u, b=None, h=None: None, path=path, now=lambda: 1000.0).entries == {}
+
+
+def test_what_the_oci_client_keeps_is_the_newest_of_each_variant(tmp_path):
+    kept = OCI.keep({"tags": ["3.11", "3.11-slim", "3.12", "3.12-slim", "3.13", "bookworm", "latest", "3.14-rc"]})
+    assert kept == {"newest": {"": "3.13", "slim": "3.12", "rc": "3.14"}}
+
+
+def test_a_repository_with_no_tags_keeps_an_empty_map_rather_than_nothing(tmp_path):
+    """`{"tags": null}` means the repository exists and has no tags, which is not the same as no such repository."""
+    assert OCI.keep({"tags": None}) == {"newest": {}}
+    assert OCI.keep("not a document") is None
+
+
+def test_what_the_github_client_keeps_is_the_tag(tmp_path):
+    assert GitHub.keep({"tag_name": "v2.0", "body": "x" * 5000, "assets": [{"name": "a"}]}) == {"tag_name": "v2.0"}
+    assert GitHub.keep({"draft": True}) is None

@@ -1,7 +1,7 @@
 # StockTake: handoff
 
 ## Current state
-**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1, M5.2 and M5.3** (the responses to the first two outside trial reports) **M6a, M6b and M6c** (container base images, pre-commit hook pins, pnpm lock files) and **M7**, `propose` mode. 648 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. **Nothing in any of the owner's projects is unread, and both planned milestones are done.** So the next session is the one decision M5 left to the owner (publish to PyPI), the next trial report, or the tech-debt items - of which the cache size is the sharpest, now that one container tag listing is 89 KB. **The YAML question is settled** ([ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md)): a strict subset that refuses what it cannot read, and the parser is written and in use.
+**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1, M5.2 and M5.3** (the responses to the first two outside trial reports) **M6a, M6b and M6c** (container base images, pre-commit hook pins, pnpm lock files) **M7** (`propose` mode) and **M8** (the cache keeps what it reads). 654 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. **Nothing in any of the owner's projects is unread, and both planned milestones are done.** So the next session is the one decision M5 left to the owner (publish to PyPI), the next trial report, or the remaining tech-debt items. The cache size, which was the sharpest of them, is done. **The YAML question is settled** ([ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md)): a strict subset that refuses what it cannot read, and the parser is written and in use.
 
 **It has been run against ten real projects** — well over two thousand dependencies, Python, Node and mixed — and found vulnerable dependencies in nearly every one. Three of its own bugs were found that way and only that way. Two more projects have been handed it cold and written down what happened: [Can-AI](feedback/2026-10-30-claude-code-session.md), which found three P0s, and [Pixel Galaxy Studio](feedback/2026-10-30-claude-code-windows-readme-cold-trial.md), which found none and instead found what the four untried adoption routes cost.
 
@@ -16,7 +16,7 @@ Pushed through `1b01058`, and CI passes on Windows and Ubuntu across Python 3.11
 ```bash
 py -3.11 -m venv .venv
 ./.venv/Scripts/python -m pip install -e ".[dev]"   # .venv/bin/python on macOS and Linux
-./.venv/Scripts/python -m pytest                    # 648 tests, ~7s (includes the live check, via the plugin)
+./.venv/Scripts/python -m pytest                    # 654 tests, ~6s (includes the live check, via the plugin)
 ./.venv/Scripts/stocktake vendor vendored/          # after ANY change to the core, or a test fails
 ./.venv/Scripts/python -m stocktake                 # check this project itself
 ```
@@ -51,7 +51,7 @@ The owner pushed through `1b01058` on 2026-10-30, and everything that could not 
 **One thing that first run showed:** the code-scanning job installed `-e .` without the dev extra, so this project's own dev dependencies had nothing to resolve against and arrived in the security tab as four `unpinned` notes about its own tooling — correct, and useless. The job now installs `.[dev]`. Four open alerts from that first run will be superseded by the next one.
 
 ## Work in progress
-None. M0 to M5, M5.1, M5.2, M5.3, M6a, M6b, M6c and M7 are complete. The rest of M6 is open and nothing is gated any more: the YAML decision is made and the parser exists. What is left needs evidence rather than a decision - `pnpm-lock.yaml` wants to be looked at before it is read (which of its layouts appear in practice), **yarn v1 is not YAML at all** so that line is two formats, and Go and Rust had no presence whatever in the owner's repositories when last counted.
+None. M0 to M5, M5.1, M5.2, M5.3, M6a, M6b, M6c, M7 and M8 are complete. The rest of M6 is open and nothing is gated any more: the YAML decision is made and the parser exists. What is left needs evidence rather than a decision - `pnpm-lock.yaml` wants to be looked at before it is read (which of its layouts appear in practice), **yarn v1 is not YAML at all** so that line is two formats, and Go and Rust had no presence whatever in the owner's repositories when last counted.
 
 ## Next steps
 1. **One decision the owner has to make**, recorded in [ROADMAP.md](ROADMAP.md) under M5 and in the PRD's open questions: whether to publish to PyPI. The metadata is ready and the name was free on 2026-10-30. Not a coding task.
@@ -144,6 +144,23 @@ The owner has about ten repositories available for this, and the list is the mos
 In [PRD.md](PRD.md) under "Open questions". None block M1. The one worth deciding soonest: whether to publish `stocktake` to PyPI now (the name is free as of 2026-10-29) or wait until there are two real consumers.
 
 ## Session log
+### Session 17 - 2026-11-12
+Two things: the verification Session 16 could not do, and the oldest tech-debt item.
+
+**The GitHub-backed propose path is now verified live**, and it was worth doing - it is the one path where the edit keeps a `v` and an `@`. Against `Vantage_BCS`: `- - uses: actions/checkout@v4` / `+ - uses: actions/checkout@v7`, and `- rev: v0.6.9` / `+ rev: v0.17.5`. The moving tag truncates to `@v7` rather than `@v7.0.1`, the pre-commit rev keeps its `v` and its full version, and `git status` there stayed empty.
+
+**The TLS failures were a flake, not a bug, and not something the owner needs to act on.** Diagnosed properly rather than assumed: plain `urllib` succeeded 13/13 sequentially and concurrently; StockTake's own `default_fetch` failed, then succeeded 6/6 a minute later. Same interpreter, same headers, no proxy, no `GITHUB_TOKEN`. It is the intermittent `CERTIFICATE_VERIFY_FAILED` to `api.github.com` that `http.py`'s retry comment already records from an earlier session, it recovers on retry, and StockTake handles it correctly - `unknown`, never clean, and `propose` offers nothing for an `unknown`. If it ever becomes frequent rather than occasional it is a local TLS-interception or cert-store question, not a StockTake one.
+
+**M8: the cache keeps what is read, not what was returned.** `Cache.get` takes a `keep` function applied once before the answer is stored *and* returned, so a hit and a miss hand back the same shape and nothing downstream can come to depend on a field nobody kept. PyPI keeps the newest version and the wholly-yanked releases; GitHub keeps the tag; OCI keeps the newest version of each variant, which is the whole of what it ever reads. npm needed nothing - it already asks for `/latest` rather than the packument, and its docstring says why.
+
+Measured rather than estimated: `pypi.org/pypi/pillow/json` is **3,479,327 bytes** and 37 are kept. A four-image Dockerfile's whole cache went from **125,958 bytes to 2,876**. That single pillow entry explains the 60-82 MB the first trial report measured.
+
+The stored format is versioned and an older file is discarded rather than misread. **A client that starts reading a new field must bump `CACHE_FORMAT`** - that rule is now in `AGENTS.md`, because the cost of this design is exactly that the cache cannot answer a question the code does not ask yet.
+
+One thing worth recording because it looked like a regression and was not: `DayandNight_BCS` went from 7 vulnerable a week ago to 3 today. Fewer findings right after a caching change is the shape of a bug, so it was checked rather than waved through - a direct OSV batch query over that lock, with no StockTake code involved, returns exactly `fast-uri 3.1.8`, `minimatch 9.0.9` and `minimatch 10.2.6`, which is what StockTake reports. The advisory data moved; the reader did not.
+
+648 -> 654 tests. Lint, format and strict mypy clean; `vendored/` regenerated. Committed locally; not pushed.
+
 ### Session 16 - 2026-11-12
 Built M7, `--format propose`: the exact change each actionable finding needs, printed and never made.
 

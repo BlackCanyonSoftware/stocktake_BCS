@@ -212,6 +212,23 @@ Status values: `planned`, `in progress`, `done`. Each milestone is a vertical sl
 
 **Verified against the real project, twice over.** An independent regex over the lock found the same 653 packages as the reader, with no difference either way. A direct OSV batch query — no StockTake code involved — named 12 vulnerable packages, and StockTake's vulnerable set from that lock is the same 12, with nothing missing and nothing extra. The run reports 681 checked, 16 vulnerable across 12 packages, including a critical in `tar`, two in `tinypool` and one in `vitest`.
 
+### M8 — The cache keeps what is read · size S · `done` (2026-11-12)
+**Goal.** The oldest tech-debt item, raised by the first trial report when the cache reached 60–82 MB and sharpened by containers when one tag listing turned out to be 89 KB.
+
+**Scope.** `Cache.get` takes a `keep` function, applied once before the answer is stored **and** returned, so a hit and a miss hand back the same shape and nothing downstream can come to depend on a field nobody kept. Each large client supplies one:
+
+| client | kept |
+|---|---|
+| PyPI | the newest version, and which releases are wholly yanked |
+| GitHub | the tag |
+| OCI | the newest version of each variant — which is the whole of what `latest` ever reads |
+
+npm needed none: it already asks for `/<name>/latest` rather than the packument, and its docstring has always said why.
+
+**Measured, not estimated.** `pypi.org/pypi/pillow/json` is **3,479,327 bytes** and 37 are kept; `requests` 202,459 and 55. A four-image Dockerfile's whole cache went from **125,958 bytes to 2,876** — the `python` tag listing alone from 89 KB to 2.2 KB. That one pillow entry explains the 60–82 MB the trial report measured.
+
+The stored format is versioned, and a file written in the older shape is discarded rather than misread: entries are a cache, so throwing them away costs one cold run and reading them wrongly costs a wrong answer.
+
 ## Now
 
 ### M6 — More ecosystems · size L · `planned`
@@ -253,7 +270,7 @@ From M6b (pre-commit and YAML).
 - **Line numbers and comments come from a second pass over the raw lines**, because the parser returns plain data with no positions. Two entries for one repository would both point at the first.
 
 From M6a (containers).
-- **A tag listing is large and is cached whole.** `python` is 89 KB and `debian` 67 KB, against about 2 KB for a small `ghcr.io` image. This is the existing cache-size item with a sharper edge, and the fix is the same for every client: keep what is read, not what was returned.
+- ~~**A tag listing is large and is cached whole.**~~ **Done** (M8, 2026-11-12): `python`'s listing is kept as the newest version of each variant, 89 KB down to 2.2 KB.
 - **Every `FROM` is a dependency, including a repeat.** A multi-stage build that uses one base image twice is two rows at two lines. Correct, and noisier than it needs to be.
 - **`docker-compose.yml` and `compose.yaml` name images and are not read.** They stay on the unread list, which is the honest place for them until the YAML question below is settled.
 - **A suffixed moving tag is answered at full precision.** `python:3.12-slim` is told about `3.15.2`, where the tag matching how it was written is `3.15`. Both exist and both are correct to paste; the more precise one is simply more precise than what was asked.
@@ -269,7 +286,7 @@ From the Windows README-first trial (M5.2).
 From the Can-AI trial (M5.1). Everything here was raised in the report, considered, and deliberately not done now; the report is the reference for each.
 - **`.gitignore` is not consulted, and there is no `--tracked-only`.** Can-AI's own run found 129 items against its own checker's 41, the extra 88 being manifests inside git-ignored third-party clones (57 of them unpinned noise). What settles the priority is the report's own follow-up: with one `exclude` line and the two hold-backs it already had, the same run gave **40 against 41** — the single difference being an unpinned `pip` inside the excluded Dockerfile. So `exclude` already solves this completely for a project willing to write one line, and `--tracked-only` would be a convenience rather than a fix for a silent gap. It also needs a decision about how a non-git project behaves. Opt-in `--tracked-only` when someone asks; not reading `.gitignore` by default.
 - **There is no real offline mode.** `STOCKTAKE_OFFLINE` makes the pytest item skip; it does not let a run answer from the cache alone, and there is no way to take a snapshot and check against it later. Wanted for air-gapped CI and for reproducible runs. It is a feature, not a correction, and it interacts with the cache's TTL in ways worth designing rather than bolting on.
-- **The cache can reach 60–82 MB.** It stores each registry response whole, and PyPI's `/pypi/{name}/json` carries every file of every release. Storing only what is read — the newest version and which releases are fully yanked — would cut it by better than an order of magnitude, at the cost of a cache that cannot answer a question the code does not ask yet.
+- ~~**The cache can reach 60–82 MB.**~~ **Done** (M8, 2026-11-12). It keeps what is read, not what was returned. The cost named here is now real and accepted: the cache cannot answer a question the code does not ask yet, and a client that starts reading a new field must bump `CACHE_FORMAT`.
 - **There is no `--fail-on unknown,unpinned,unread`.** 300 nonexistent package names now print `nothing could be checked (0 of 300 checked, 300 not found)`, which is honest, and still exit 0. A project that wants "a dependency I could not look up fails my build" has no way to say so. This is [ADR 0004](adr/0004-only-unsafe-findings-fail-the-build.md) territory — the question is not whether the flag is easy but whether the default should ever change — and it is the same shape as the deferred question of whether `outdated` may fail behind a strictness flag. Decide both together, with a project asking, rather than inventing a second strictness axis now.
 - **The JSON report does not carry `exit_code`.** Deliberate: `cli.py` owns the exit codes and `check.py` owns the rules, and a copy of that mapping in the report module would be the second place the rules live, which is the one thing `AGENTS.md` forbids outright. `complete` and `failed` together determine the code exactly — `complete: false` is 2, else `failed: true` is 1, else 0 — and the README says so. Revisit only if a consumer turns up that genuinely cannot do that arithmetic.
 - **The JSON report does not name the root it was run against**, and says nothing explicit about findings' paths being relative to it. True today in every reader; not stated, and not enforced by a test.

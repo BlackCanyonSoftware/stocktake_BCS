@@ -17,6 +17,7 @@ that is not slim. So a variant is carried as part of the name and only tags of t
 
 from __future__ import annotations
 
+from typing import Any
 from urllib.parse import quote
 
 from stocktake.registries.base import Versions
@@ -68,19 +69,39 @@ class OCI:
     def __init__(self, cache: Cache) -> None:
         self.cache = cache
 
-    def _tags(self, registry: str, repository: str) -> list[str] | None:
-        """Every tag the registry lists for the repository, getting a token first only if told to."""
-        url = TAGS_URL.format(registry=registry, repository=quote(repository, safe="/"))
-        try:
-            data = self.cache.get(url)
-        except Unauthorized:
-            token = self._token(registry, repository)
-            data = self.cache.get(url, headers={"Authorization": f"Bearer {token}"})
-        if not data:
+    @staticmethod
+    def keep(data: Any) -> dict[str, Any] | None:
+        """The newest version of each variant, out of a listing that ran to 4117 tags for one image.
+
+        This is the whole of what is ever read. `latest` is asked about one variant and takes the largest version in it, so a map from
+        variant to its newest version loses nothing and turns 89 KB of cache into a few hundred bytes. Tags that name no version -- a
+        codename, `latest`, an alpha -- are dropped here for the same reason: they are never an answer.
+        """
+        if not isinstance(data, dict):
             return None
         tags = data.get("tags")
-        # A repository that exists with no tags at all answers `{"tags": null}`, which is not the same as no such repository.
-        return [str(tag) for tag in tags] if isinstance(tags, list) else []
+        # A repository that exists with no tags answers `{"tags": null}`, which is not the same as no such repository: an empty map, not None.
+        newest: dict[str, str] = {}
+        for tag in tags if isinstance(tags, list) else []:
+            parts = container_tag(str(tag))
+            if parts is None:
+                continue
+            version, variant = parts
+            if variant not in newest or release_tuple(version) > release_tuple(newest[variant]):
+                newest[variant] = version
+        return {"newest": newest}
+
+    def _newest(self, registry: str, repository: str) -> dict[str, str] | None:
+        """The newest version of every variant this repository publishes, getting a token first only if told to."""
+        url = TAGS_URL.format(registry=registry, repository=quote(repository, safe="/"))
+        try:
+            data = self.cache.get(url, keep=self.keep)
+        except Unauthorized:
+            token = self._token(registry, repository)
+            data = self.cache.get(url, headers={"Authorization": f"Bearer {token}"}, keep=self.keep)
+        if not data:
+            return None
+        return dict(data.get("newest") or {})
 
     def _token(self, registry: str, repository: str) -> str:
         host, service = TOKEN_HOSTS.get(registry, (registry, registry))
@@ -99,15 +120,8 @@ class OCI:
         """
         reference, variant = split_variant(name)
         registry, repository = split_reference(reference)
-        tags = self._tags(registry, repository)
-        if tags is None:
+        newest = self._newest(registry, repository)
+        if newest is None:
             return None
-
-        candidates = []
-        for tag in tags:
-            parts = container_tag(tag)
-            if parts is not None and parts[1] == variant:
-                candidates.append(parts[0])
-        if not candidates:
-            return None
-        return Versions(latest=max(candidates, key=release_tuple))
+        found = newest.get(variant)
+        return Versions(latest=found) if found else None

@@ -77,7 +77,7 @@ In a CI step, do not write `stocktake || true`: that hides 2 as well as 1. To al
 
 Only package names and versions leave this machine, to pypi.org, registry.npmjs.org, api.github.com and api.osv.dev.
 No file in the project is ever modified. Answers are cached for six hours; --refresh ignores the cache.
-The cache lives in your user cache directory and a large project can fill tens of megabytes of it.
+The cache lives in your user cache directory and keeps only what was read, so it stays small.
 Set GITHUB_TOKEN to raise GitHub's anonymous limit of 60 requests an hour; it is sent to GitHub alone.
 Set STOCKTAKE_OFFLINE=1 to answer from the cache and make no request at all; anything not cached is then
 unknown, so the run is incomplete and exits 2.
