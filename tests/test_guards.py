@@ -123,3 +123,32 @@ def test_the_local_matrix_script_can_still_read_the_matrix_ci_runs():
     assert versions, "no versions found in the CI matrix"
     assert all(re.fullmatch(r"3\.\d+", v) for v in versions), versions
     assert "3.11" in versions, "the floor the package claims must be in the matrix"
+
+
+def test_the_local_matrix_finds_a_uv_installed_python_without_being_told_where_it_is(tmp_path, monkeypatch):
+    """A Python that `uv python install` put on the machine must not look missing.
+
+    Reported as missing it fails the run, and a person who sees "3.14 is missing" goes and reinstalls something that was already there.
+    It happened here for real: uv's short-name link was dangling, so the interpreter was installed and working and still invisible.
+    """
+    import importlib.util
+    import sys
+
+    spec = importlib.util.spec_from_file_location("matrix", ROOT / "tools" / "matrix.py")
+    assert spec is not None and spec.loader is not None
+    matrix = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(matrix)
+
+    windows = sys.platform == "win32"
+    root = tmp_path / "uv" / "python"
+    for name in ("cpython-3.14.2-windows-x86_64-none", "cpython-3.14.10-windows-x86_64-none", "cpython-3.13.3-windows-x86_64-none"):
+        folder = root / name
+        executable = folder / ("python.exe" if windows else "bin/python")
+        executable.parent.mkdir(parents=True)
+        executable.write_text("", encoding="utf-8")
+    monkeypatch.setenv("APPDATA" if windows else "XDG_DATA_HOME", str(tmp_path))
+
+    found = matrix.uv_managed("3.14")
+    assert len(found) == 2, found
+    assert "3.14.10" in found[0], "newest patch first"
+    assert not any("3.13" in path for path in found), "only the version asked for"

@@ -14,12 +14,15 @@ produce one. Pass `--allow-missing` to say so on purpose; the missing ones are t
     python tools/matrix.py                 # every Python the CI matrix names
     python tools/matrix.py 3.11 3.14       # just these
     python tools/matrix.py --allow-missing # on a machine that has only some of them
-    python tools/matrix.py --python 3.14=C:/path/to/python.exe   # a Python the launcher cannot find
+    python tools/matrix.py --python 3.14=C:/path/to/python.exe   # a Python it cannot find by itself
+
+Interpreters are found through the Windows launcher, `pythonX.Y` on PATH, and the folder `uv python install` uses, in that order.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -49,6 +52,36 @@ def ci_versions() -> list[str]:
     return [item.strip().strip("\"'") for item in match.group(1).split(",")]
 
 
+def _patch_number(folder: Path) -> tuple[int, ...]:
+    """The version in a uv folder name such as `cpython-3.14.10-windows-x86_64-none`, as numbers."""
+    match = re.match(r"cpython-(\d+(?:\.\d+)*)", folder.name)
+    return tuple(int(part) for part in match.group(1).split(".")) if match else ()
+
+
+def uv_managed(version: str) -> list[str]:
+    """Interpreters `uv python install` put on this machine for `version`, newest patch first.
+
+    Looked for on disk rather than asked of `uv`, because `uv` is often not on PATH and its short-name link (`cpython-3.14-...`) can be
+    dangling, which made a Python that was installed and working look missing. A missing interpreter fails the run, so reporting an installed
+    one as missing would send the next person off to reinstall something that was already there.
+    """
+    windows = sys.platform == "win32"
+    if windows:
+        base = os.environ.get("APPDATA")
+        roots = [Path(base) / "uv" / "python"] if base else []
+    else:
+        data = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+        roots = [Path(data) / "uv" / "python"]
+    found: list[str] = []
+    for root in roots:
+        # Sorted by the numbers in the name, not as text: as text `3.14.2` sorts after `3.14.10`, so the older patch release came first.
+        for folder in sorted(root.glob(f"cpython-{version}.*"), key=_patch_number, reverse=True):
+            executable = folder / ("python.exe" if windows else "bin/python")
+            if executable.exists():
+                found.append(str(executable))
+    return found
+
+
 def interpreter_for(version: str, explicit: dict[str, str]) -> list[str] | None:
     """The command that starts Python `version`, or None when this machine does not have it."""
     candidates: list[list[str]] = []
@@ -57,6 +90,7 @@ def interpreter_for(version: str, explicit: dict[str, str]) -> list[str] | None:
     if shutil.which("py"):
         candidates.append(["py", f"-{version}"])  # the Windows launcher
     candidates.append([f"python{version}"])
+    candidates.extend([path] for path in uv_managed(version))
     if shutil.which("uv"):
         candidates.append(["uv", "run", "--python", version, "python"])
     for command in candidates:
