@@ -961,6 +961,11 @@ def default_fetch(
             with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:  # a subclass of URLError, so it has to be caught first
+            # An HTTPError is also the open response, and nothing else is going to close it. Left alone it is collected unclosed, which on
+            # Python 3.14 and later is a ResourceWarning -- and pytest turns one raised during garbage collection into a failure of
+            # whichever unrelated test happened to be running. So a user's own suite could fail because StockTake looked up a package that
+            # does not exist, since a 404 is the ordinary answer for one. Found by CI on 3.14, not by anything run here.
+            exc.close()
             if exc.code == 404:
                 return None
             if exc.code == 401:

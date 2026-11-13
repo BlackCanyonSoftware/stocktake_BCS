@@ -106,3 +106,20 @@ def test_every_file_the_readme_links_into_this_repository_exists():
     # A link to a directory is fine: `docs/adr/` is the ADR index and GitHub renders it. The target just has to be there.
     missing = [t for t in re.findall(rf"\(\s*{re.escape(prefix)}([^)\s#]+)", text) if not (ROOT / t).exists()]
     assert not missing, f"the README links to files that are not here: {missing}"
+
+
+def test_the_local_matrix_script_can_still_read_the_matrix_ci_runs():
+    """`tools/matrix.py` reads its Python versions out of the CI workflow so the two cannot drift. If somebody reshapes the workflow and the
+    script quietly finds nothing, the local run would pass having run nothing, which is the failure it exists to prevent.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("matrix", ROOT / "tools" / "matrix.py")
+    assert spec is not None and spec.loader is not None
+    matrix = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(matrix)
+
+    versions = matrix.ci_versions()
+    assert versions, "no versions found in the CI matrix"
+    assert all(re.fullmatch(r"3\.\d+", v) for v in versions), versions
+    assert "3.11" in versions, "the floor the package claims must be in the matrix"

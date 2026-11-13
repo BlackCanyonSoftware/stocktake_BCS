@@ -65,6 +65,7 @@ Three things found by running it against real projects rather than by design, an
 - **The single-file copy lists its reader groups in the same order the package does.** It concatenates modules in dependency order, so the two disagreed about something a caller can see; the order is alphabetical now and cannot drift.
 - **No registry is asked about a name nothing pins.** The answer was discarded before being read, which went unnoticed until a container tag listing made it 67 KB of cache per unpinned image.
 - **A failure says what happened on its first line.** It began with a blank line, so pytest's one-line summary printed `FAILED stocktake_dependency_check - ` and nothing after the dash.
+- **A lookup that got a 404 no longer leaves the response open.** `default_fetch` caught an `HTTPError` and never closed it. On Python 3.14 and later a collected-unclosed one is a `ResourceWarning`, which pytest raises as a failure of whichever unrelated test is running, so a project's own suite could fail because StockTake looked up a package that does not exist. A 404 is the ordinary answer for one.
 - **The report header uses the local date.** A run at 19:46 on the 30th printed `2026-10-31`, because it was the UTC date.
 - **The unreadable-file message is printed once**, not to stdout and stderr both.
 - **The CI snippet in the README carries `shell: bash`**, without which `|| [ $? -eq 1 ]` is a parse error on a Windows runner. This repository's own code-scanning workflow had the same problem in the other direction, using the `|| true` the README warns against.

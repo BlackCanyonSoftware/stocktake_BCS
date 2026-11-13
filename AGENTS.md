@@ -11,13 +11,14 @@ A dependency checker that drops into a project's own test suite. It reads what t
 ## Commands
 
 ```bash
-./.venv/Scripts/python -m pytest              # whole suite, incl. the live check (656 tests, ~7s)
+./.venv/Scripts/python -m pytest              # whole suite, incl. the live check (661 tests, ~7s)
 ./.venv/Scripts/python -m pytest -m "not network"
 ./.venv/Scripts/python -m ruff check .
 ./.venv/Scripts/python -m ruff format .
 ./.venv/Scripts/python -m mypy                # strict, over src
 ./.venv/Scripts/python -m stocktake           # run it against itself
 ./.venv/Scripts/stocktake vendor vendored/    # AFTER ANY CHANGE TO src/stocktake/
+./.venv/Scripts/python tools/matrix.py        # BEFORE EVERY COMMIT: what CI runs, on every Python CI runs it on
 ```
 
 Setup: `py -3.11 -m venv .venv && ./.venv/Scripts/python -m pip install -e ".[dev]"`. Use `./.venv/Scripts/python` on Windows, `.venv/bin/python` elsewhere.
@@ -95,7 +96,7 @@ One module in `readers/`, one in `registries/`, an import line in each `__init__
 
 1. It meets what was asked.
 2. Tests cover the new behaviour; the whole suite passes.
-3. Ruff, format and mypy clean.
+3. Ruff, format and mypy clean, **on every Python the CI matrix names** (`python tools/matrix.py`). A run on one interpreter is not a CI run: CI went red on 3.14 and 3.15 after a 3.11-only pass, because 3.14 turns an unclosed `HTTPError` into a `ResourceWarning` that 3.11 never mentions. If an interpreter is missing the script says so and fails; say which ones were not run, in those words.
 4. You ran it on a real project.
 5. `vendored/` regenerated if the core changed.
 6. Docs updated in the same commit; an ADR for anything significant.

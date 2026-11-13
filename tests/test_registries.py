@@ -395,3 +395,26 @@ def test_a_repository_with_no_tags_keeps_an_empty_map_rather_than_nothing(tmp_pa
 def test_what_the_github_client_keeps_is_the_tag(tmp_path):
     assert GitHub.keep({"tag_name": "v2.0", "body": "x" * 5000, "assets": [{"name": "a"}]}) == {"tag_name": "v2.0"}
     assert GitHub.keep({"draft": True}) is None
+
+
+class TrackedHTTPError(HTTPError):
+    """An HTTPError that records whether anything closed it."""
+
+    closed_by_caller = False
+
+    def close(self):
+        self.closed_by_caller = True
+        super().close()
+
+
+@pytest.mark.parametrize("code", [404, 401, 429, 500])
+def test_an_http_error_is_closed_rather_than_left_for_the_garbage_collector(monkeypatch, code):
+    """An HTTPError is also the open response. On Python 3.14 and later one collected unclosed is a ResourceWarning, which pytest raises as
+    a failure of whichever unrelated test the collector happens to run in -- so this has to hold on every Python, not only the one that
+    punishes it. It was found by CI on 3.14, after being missed by a run on 3.11 where nothing complains.
+    """
+    error = TrackedHTTPError("https://pypi.org/pypi/x/json", code, "status", {}, None)
+    urlopen_that(monkeypatch, error)
+    with contextlib.suppress(Exception):
+        default_fetch("https://pypi.org/pypi/x/json", attempts=1)
+    assert error.closed_by_caller, f"a {code} answer was left open"

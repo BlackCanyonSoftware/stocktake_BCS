@@ -19,6 +19,7 @@ jobs:
         # The floor the package claims, and the newest Python, on both platforms the author uses. 3.14 and 3.15 are here so that
         # supporting them is a tested claim rather than an assumption: `requires-python = ">=3.11"` lets pip install on them today, and
         # until this matrix is green on them the classifiers deliberately do not say so.
+        # `python tools/matrix.py` reads the line below, so adding a version here adds it to the local run as well.
         os: [ubuntu-latest, windows-latest]
         python: ["3.11", "3.13", "3.14", "3.15"]
 

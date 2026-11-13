@@ -1,7 +1,7 @@
 # StockTake: handoff
 
 ## Current state
-**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1, M5.2 and M5.3** (the responses to the first two outside trial reports) **M6a, M6b and M6c** (container base images, pre-commit hook pins, pnpm lock files) **M7** (`propose` mode), **M8** (the cache keeps what it reads) and **M9** (ready to be published). 656 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. **Nothing in any of the owner's projects is unread, and both planned milestones are done.** So the next session is the one decision M5 left to the owner (publish to PyPI), the next trial report, or the remaining tech-debt items. The cache size, which was the sharpest of them, is done. **The YAML question is settled** ([ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md)): a strict subset that refuses what it cannot read, and the parser is written and in use.
+**Milestones 0 to 5 are done and verified**, except container tags, which moved to M6 (see the roadmap for why), plus **M5.1, M5.2 and M5.3** (the responses to the first two outside trial reports) **M6a, M6b and M6c** (container base images, pre-commit hook pins, pnpm lock files) **M7** (`propose` mode), **M8** (the cache keeps what it reads) and **M9** (ready to be published). 661 passing tests on Python 3.11 and 3.13, clean lint, clean strict type checking. **Nothing in any of the owner's projects is unread, and both planned milestones are done.** So the next session is the one decision M5 left to the owner (publish to PyPI), the next trial report, or the remaining tech-debt items. The cache size, which was the sharpest of them, is done. **The YAML question is settled** ([ADR 0013](adr/0013-a-strict-yaml-subset-rather-than-a-dependency.md)): a strict subset that refuses what it cannot read, and the parser is written and in use.
 
 **It has been run against ten real projects** — well over two thousand dependencies, Python, Node and mixed — and found vulnerable dependencies in nearly every one. Three of its own bugs were found that way and only that way. Two more projects have been handed it cold and written down what happened: [Can-AI](feedback/2026-10-30-claude-code-session.md), which found three P0s, and [Pixel Galaxy Studio](feedback/2026-10-30-claude-code-windows-readme-cold-trial.md), which found none and instead found what the four untried adoption routes cost.
 
@@ -16,7 +16,8 @@ Pushed through `1b01058`, and CI passes on Windows and Ubuntu across Python 3.11
 ```bash
 py -3.11 -m venv .venv
 ./.venv/Scripts/python -m pip install -e ".[dev]"   # .venv/bin/python on macOS and Linux
-./.venv/Scripts/python -m pytest                    # 656 tests, ~7s (includes the live check, via the plugin)
+./.venv/Scripts/python -m pytest                    # 661 tests, ~7s (includes the live check, via the plugin)
+./.venv/Scripts/python tools/matrix.py              # BEFORE EVERY COMMIT: every Python CI runs, not just this one
 ./.venv/Scripts/stocktake vendor vendored/          # after ANY change to the core, or a test fails
 ./.venv/Scripts/python -m stocktake                 # check this project itself
 ```
@@ -144,6 +145,23 @@ The owner has about ten repositories available for this, and the list is the mos
 In [PRD.md](PRD.md) under "Open questions". None block M1. The one worth deciding soonest: whether to publish `stocktake` to PyPI now (the name is free as of 2026-10-29) or wait until there are two real consumers.
 
 ## Session log
+### Session 19 - 2026-11-12
+**CI went red, and it was my process, not bad luck.** The 3.14 and 3.15 jobs failed on both operating systems after I had added them to the matrix; 3.11 and 3.13 stayed green. I had run the suite on one interpreter, Python 3.11 on Windows, and CI runs eight jobs. Nothing I ran could have found it, because the one interpreter I used is the one that does not complain.
+
+**The bug was real and in the product, not only in the tests.** `default_fetch` caught an `HTTPError` and never closed it. An `HTTPError` is also the open response. On Python 3.14 and later one collected unclosed is a `ResourceWarning`, and pytest raises a warning from garbage collection as a failure of whichever unrelated test happens to be running - which is why a *different* test failed in each job. In the product that means a user's own suite could fail in some unrelated test because StockTake looked up a package that does not exist, and a 404 is the ordinary answer for one. The fix is one `exc.close()`.
+
+**It was reproduced rather than assumed.** There was no 3.14 or 3.15 on this machine, so with the owner's go-ahead (two standalone CPython builds from python-build-standalone via `uv`, 23.7 and 22.6 MiB, installed under uv's own folder) the exact CI errors were reproduced locally with the fix removed - `ResourceWarning: Implicitly cleaning up <HTTPError 404: 'Not Found'>` and the 429 one - and then shown gone with it. The regression test closes a tracked `HTTPError` for 404, 401, 429 and 500 and fails on **every** Python without the fix, not only the one that punishes it.
+
+**The process fix is `tools/matrix.py`**, and it is now step zero in `AGENTS.md`'s definition of done. It reads the interpreter list out of `.github/workflows/ci.yml` so the two cannot drift (a guard test checks it can still parse it), then runs lint, formatting, the type check and the tests on each in its own virtualenv, with `ResourceWarning` as an error. **A Python that is not installed fails the run rather than being skipped** - a green result that quietly left an interpreter out is exactly the false reassurance this project exists to prevent, and a script written to avoid CI surprises should not manufacture one. `--allow-missing` says so on purpose; `--python 3.14=PATH` handles a Python the launcher cannot find.
+
+It paid for itself on first use: it caught a formatting error in the regression test I had just written, which would have failed all eight CI jobs.
+
+**Verified: Windows on 3.11, 3.13, 3.14 and 3.15, all green. NOT verified: Linux.** The Ubuntu jobs failed for the same reason and should pass for the same reason, but nothing here runs Linux, so that is inference. `ubuntu-latest` on 3.11 was green before and on 3.14/3.15 was red for the identical `HTTPError` message. If those jobs are red after the next push, that is a Linux-specific finding and not this one.
+
+**Left over from the uv install**: its convenience link for the short version name (`cpython-3.14-...`) is dangling, which is harmless, and the two interpreters live under `C:\Users\Kpier\AppData\Roaming\uv\python\`. They can be deleted with `uv python uninstall 3.14 3.15` or by removing that folder; nothing in the project depends on them except running `tools/matrix.py` here.
+
+Committed locally; not pushed.
+
 ### Session 18 - 2026-11-12
 A pass for what only breaks at publication. **The packaging turned out to be sound and the shop window did not.**
 

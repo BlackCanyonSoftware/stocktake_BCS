@@ -105,6 +105,13 @@ Anything significant gets an [Architecture Decision Record](docs/adr/): context,
 7. No leftover debug code, commented-out code, or untracked TODOs. Every `TODO` has a line in [docs/ROADMAP.md](docs/ROADMAP.md).
 8. If something is unverified, the report says so in those words.
 
+## Before you push
+
+```bash
+python tools/matrix.py
+```
+
+Runs lint, formatting, the type check and the tests on every Python version the CI matrix names, read from `.github/workflows/ci.yml` so the two cannot drift apart. It exits non-zero if one of those Pythons is not installed on your machine rather than quietly skipping it: a green run that left an interpreter out does not mean CI will be green. `--allow-missing` says you know.
 ## Found a security problem?
 
 Do not open an issue for it. [SECURITY.md](SECURITY.md) has the private reporting route and says what counts as one.

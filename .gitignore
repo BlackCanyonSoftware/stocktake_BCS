@@ -21,3 +21,6 @@ htmlcov/
 *.swp
 .DS_Store
 Thumbs.db
+
+# tools/matrix.py: one virtual environment per Python the CI matrix names.
+.matrix/
