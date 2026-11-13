@@ -21,6 +21,8 @@ A dependency checker that drops into a project's own test suite. It reads what t
 ./.venv/Scripts/python tools/matrix.py        # BEFORE EVERY COMMIT: what CI runs, on every Python CI runs it on
 ```
 
+CI also runs on Ubuntu. On the owner's Windows machine that half is run in WSL - the recipe is in `docs/HANDOFF.md`, Session 19.
+
 Setup: `py -3.11 -m venv .venv && ./.venv/Scripts/python -m pip install -e ".[dev]"`. Use `./.venv/Scripts/python` on Windows, `.venv/bin/python` elsewhere.
 
 ## Project map

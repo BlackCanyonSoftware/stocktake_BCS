@@ -156,7 +156,22 @@ In [PRD.md](PRD.md) under "Open questions". None block M1. The one worth decidin
 
 It paid for itself on first use: it caught a formatting error in the regression test I had just written, which would have failed all eight CI jobs.
 
-**Verified: Windows on 3.11, 3.13, 3.14 and 3.15, all green. NOT verified: Linux.** The Ubuntu jobs failed for the same reason and should pass for the same reason, but nothing here runs Linux, so that is inference. `ubuntu-latest` on 3.11 was green before and on 3.14/3.15 was red for the identical `HTTPError` message. If those jobs are red after the next push, that is a Linux-specific finding and not this one.
+**Verified: Windows and Linux, on 3.11, 3.13, 3.14 and 3.15, 661 tests each.** Linux was first marked unverified here, on the claim that nothing on this machine runs Linux. That was wrong: **the owner's Windows PC has WSL2 with an Ubuntu distro**, and they pointed it out. Run there, `tools/matrix.py` is green on all four, and a plain `pytest -W error::ResourceWarning` gives `661 passed` on 3.14.10 and on 3.15.2 - the two interpreters whose Ubuntu jobs failed in CI. Python 3.12 (Ubuntu's own, not in the matrix) was also clean.
+
+**How to run the Linux half from Windows** - worth keeping, because it is not obvious and it found nothing only because it was run:
+
+```bash
+# once: clone the COMMITTED state into WSL's own filesystem, not /mnt/c
+wsl -d Ubuntu -u kpierce -e bash -c "git clone /mnt/c/Users/Kpier/Documents/StockTake_BCS ~/stocktake-ci"
+# once: a venv, uv in it, and the four Pythons
+wsl -d Ubuntu -u kpierce -e bash -c "cd ~/stocktake-ci && python3 -m venv .venv && . .venv/bin/activate && pip install uv && uv python install 3.11 3.13 3.14 3.15"
+# each time: pull what was committed, run the matrix
+wsl -d Ubuntu -u kpierce -e bash -c 'cd ~/stocktake-ci && git pull -q && . .venv/bin/activate && export PATH="$HOME/.local/bin:$PATH" && python tools/matrix.py'
+```
+
+Two things about it. **Clone rather than run from `/mnt/c`**: that tests what CI checks out, and avoids Windows line endings and permission bits giving false failures (the vendored-copy test compares bytes). And **`wsl: Failed to start the systemd user session for 'kpierce'` is noise** - the command still runs - but it did once swallow the output of a piped `grep`, so write results to a file inside WSL and read them back if a result matters. Do **not** `wsl --shutdown`: Docker Desktop is running on the same WSL.
+
+**Left behind by testing**: on Windows, two uv-installed Pythons under `C:\Users\Kpier\AppData\Roaming\uv\python\`; in WSL, `~/stocktake-ci` and four Pythons under `~/.local/share/uv/python/`. All removable (`uv python uninstall ...`, or delete the folders); nothing in the project depends on them except running the matrix locally.
 
 **Left over from the uv install**: its convenience link for the short version name (`cpython-3.14-...`) is dangling, which is harmless, and the two interpreters live under `C:\Users\Kpier\AppData\Roaming\uv\python\`. They can be deleted with `uv python uninstall 3.14 3.15` or by removing that folder; nothing in the project depends on them except running `tools/matrix.py` here.
 
